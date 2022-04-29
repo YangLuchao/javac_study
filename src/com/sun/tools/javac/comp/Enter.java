@@ -89,6 +89,13 @@ import static com.sun.tools.javac.code.Kinds.*;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 填充符号表的过程主要由com.sun.tools.javac.comp.Enter和com.sun.tools.javac.comp.MemberEnter类来完成
+// 自上而下遍历抽象语法树，将遇到的符号定义填充到符号表中
+// 将Entry对象填充到Scope对象的table数组中
+/*
+符号输入的第一阶段要将当前编译单元下所有的非本地类的类符号输入到对应owner类的members_field变量中，
+对于编译单元内的顶层类来说，会输入到namedImportScope与packge中。
+ */
 public class Enter extends JCTree.Visitor {
     protected static final Context.Key<Enter> enterKey =
         new Context.Key<Enter>();
@@ -143,6 +150,8 @@ public class Enter extends JCTree.Visitor {
     /** A hashtable mapping classes and packages to the environments current
      *  at the points of their definitions.
      */
+    // 保存了TypeSymbol对象到Env对象的映射
+    // 符号输入阶段在循环处理uncompleted中的ClassSymbol对象时，如果需要上下文环境，可直接通过typeEnvs变量获取即可
     Map<TypeSymbol,Env<AttrContext>> typeEnvs =
             new HashMap<TypeSymbol,Env<AttrContext>>();
 
@@ -164,10 +173,12 @@ public class Enter extends JCTree.Visitor {
     /** The queue of all classes that might still need to be completed;
      *  saved and initialized by main().
      */
+    // 没有编译过的类符号缓冲列表
     ListBuffer<ClassSymbol> uncompleted;
 
     /** A dummy class to serve as enclClass for toplevel environments.
      */
+    // 每个类型声明
     private JCClassDecl predefClassDef;
 
 /* ************************************************************************
@@ -189,6 +200,9 @@ public class Enter extends JCTree.Visitor {
      *  @param env      The environment current outside of the class definition.
      */
     public Env<AttrContext> classEnv(JCClassDecl tree, Env<AttrContext> env) {
+        // 根据tree所处的上下文环境env创建localEnv
+        // 如果tree为顶层类，参数env就是调用topLevelEnv()方法生成的上下文环境
+        // 在创建过程中，由于类会形成一个新的作用域，所以创建了一个新的Scope对象
         Env<AttrContext> localEnv =
             env.dup(tree, env.info.dup(new Scope(tree.sym)));
         localEnv.enclClass = tree;
@@ -202,14 +216,22 @@ public class Enter extends JCTree.Visitor {
     /** Create a fresh environment for toplevels.
      *  @param tree     The toplevel tree.
      */
+    // 创建编译单元对应的环境
     Env<AttrContext> topLevelEnv(JCCompilationUnit tree) {
+        // 创建编译单元形成的上下文环境localEnv，设置各个变量的值
         Env<AttrContext> localEnv = new Env<AttrContext>(tree, new AttrContext());
+        // 设置编译单元
         localEnv.toplevel = tree;
+        // 设置类声明
         localEnv.enclClass = predefClassDef;
+        // ImportScope与StarImportScope对象，这两个变量将保存导入声明导入的符号
         tree.namedImportScope = new ImportScope(tree.packge);
         tree.starImportScope = new StarImportScope(tree.packge);
+        // tree.namedImportScope与localEnv.info.scope指向的是同一个ImportScope对象
         localEnv.info.scope = tree.namedImportScope;
         localEnv.info.lint = lint;
+        // 在后续符号输入的过程中，会将当前编译单元内的所有顶层类输入到localEnv.info.scope中，
+        // 所以tree.namedImportScope中也包含有当前编译单元中所有顶层类的符号
         return localEnv;
     }
 
@@ -227,9 +249,15 @@ public class Enter extends JCTree.Visitor {
      *  where the local scope is for type variables, and the this and super symbol
      *  only, and members go into the class member scope.
      */
+    // 调用enterScope()方法查找封闭类的作用域
     Scope enterScope(Env<AttrContext> env) {
+        // 当env.tree为JCClassDecl对象时，说明tree是env.tree的成员类，
+        // 方法将返回env.tree类的members_field，成员类的ClassSymbol对象最终会填充到宿主类的members_field中
         return (env.tree.getTag() == JCTree.CLASSDEF)
             ? ((JCClassDecl) env.tree).sym.members_field
+            // 当env.tree为JCCompilationUnit对象时，那么enterScope()方法返回env.info.scope
+            // scope变量被赋值为tree.namedImportScope，所以在visitClassDef()方法中将所有顶层类的符号输入到env.info.scope中，
+            // 其实也相当于输入到了tree.namedImportScope中
             : env.info.scope;
     }
 
@@ -252,10 +280,15 @@ public class Enter extends JCTree.Visitor {
      *  @param env     The environment visitor argument.
      */
     Type classEnter(JCTree tree, Env<AttrContext> env) {
+        // 如果要通过方法进行参数传递，可能需要在JCTree.Visitor类中定义许多不同的accept()方法，非常麻烦
+        // 但是定义为成员变量后，由于不同语法节点对应着不同的env，每次调用classEnter()方法时都需要通过prevEnv保存当前的成员变量值，
+        // 当处理完当前节点后再利用prevEnv还原env的值，类似于通过栈结构来保存不同的env值
         Env<AttrContext> prevEnv = this.env;
         try {
+            // env保存了即将分析的语法树节点的上下文环境
             this.env = env;
             tree.accept(this);
+            // result保存了处理当前语法节点tree后得到的类型
             return result;
         }  catch (CompletionFailure ex) {
             return chk.completionError(tree.pos(), ex);
@@ -266,9 +299,14 @@ public class Enter extends JCTree.Visitor {
 
     /** Visitor method: enter classes of a list of trees, returning a list of types.
      */
+    // 符号输入的第一阶段
+    // 调用classEnter()方法完成类符号输入，
+    // 同时还会将除本地类外的所有类对应的ClassSymbol对象存储到uncompleted列表中，
+    // 这样下一个符号输入阶段就可以直接循环uncompleted列表并调用clazz.complete()方法完成每个类中成员符号的填充了。
     <T extends JCTree> List<Type> classEnter(List<T> trees, Env<AttrContext> env) {
         ListBuffer<Type> ts = new ListBuffer<Type>();
         for (List<T> l = trees; l.nonEmpty(); l = l.tail) {
+            // 调用另一个classEnter
             Type t = classEnter(l.head, env);
             if (t != null)
                 ts.append(t);
@@ -277,11 +315,13 @@ public class Enter extends JCTree.Visitor {
     }
 
     @Override
+    // 对编译单元进行处理
     public void visitTopLevel(JCCompilationUnit tree) {
         JavaFileObject prev = log.useSource(tree.sourcefile);
         boolean addEnv = false;
         boolean isPkgInfo = tree.sourcefile.isNameCompatible("package-info",
                                                              JavaFileObject.Kind.SOURCE);
+        // 包声明不为空
         if (tree.pid != null) {
             tree.packge = reader.enterPackage(TreeInfo.fullName(tree.pid));
             if (tree.packageAnnotations.nonEmpty() || pkginfoOpt == PkgInfo.ALWAYS) {
@@ -293,9 +333,13 @@ public class Enter extends JCTree.Visitor {
                 }
             }
         } else {
+            // 否则设置为没有名字的包
             tree.packge = syms.unnamedPackage;
         }
+        // 完成包下符号的填充
+        // 调用tree.packge的complete()方法其实还是调用ClassReader类中的complete()方法完成符号填充
         tree.packge.complete(); // Find all classes in package.
+        // 创建编译单元对应的环境
         Env<AttrContext> topEnv = topLevelEnv(tree);
 
         // Save environment of package-info.java file.
@@ -329,6 +373,7 @@ public class Enter extends JCTree.Visitor {
             c.members_field = new Scope(c);
             tree.packge.package_info = c;
         }
+        // 遍历当前编译单元下的成员
         classEnter(tree.defs, topEnv);
         if (addEnv) {
             todo.append(topEnv);
@@ -338,16 +383,25 @@ public class Enter extends JCTree.Visitor {
     }
 
     @Override
+    // 对定义的类进行处理
+    // 任何类（包括本地类）都会调用visitClassDef()方法为当前的类型生成对应的ClassSymbol对象，
+    // 然后将此对象标注到语法树上，同时也会填充到相关作用域的符号表内
     public void visitClassDef(JCClassDecl tree) {
+        // -------------------------------------------------------------------具体实现的第一部分
+        // env就是当前类所处的上下文环境，如果tree表示的是顶层类，
+        // 那么env就是之前调用visitTopLevel()方法时创建的topEnv。调用enclScope()方法查找封闭类的作用域
         Symbol owner = env.info.scope.owner;
+        // 调用enterScope()方法查找封闭类的作用域
         Scope enclScope = enterScope(env);
         ClassSymbol c;
+        // 宿主的类型为PCK,表示tree为顶层类
         if (owner.kind == PCK) {
-            // We are seeing a toplevel class.
             PackageSymbol packge = (PackageSymbol)owner;
             for (Symbol q = packge; q != null && q.kind == PCK; q = q.owner)
                 q.flags_field |= EXISTS;
+            // 调用ClassReader对象reader的enterClass()方法生成顶层类的ClassSymbol对象
             c = reader.enterClass(tree.name, packge);
+            // 将这个对象填充到所属包符号的members_field中
             packge.members().enterIfAbsent(c);
             if ((tree.mods.flags & PUBLIC) != 0 && !classNameMatchesFileName(c, env)) {
                 log.error(tree.pos(),
@@ -359,20 +413,24 @@ public class Enter extends JCTree.Visitor {
                 result = null;
                 return;
             }
+            // 宿主的类型为TYP,表明tree是成员类
             if (owner.kind == TYP) {
-                // We are seeing a member class.
+                // 调用reader.enterClass()方法生成ClassSymbol对象
                 c = reader.enterClass(tree.name, (TypeSymbol)owner);
                 if ((owner.flags_field & INTERFACE) != 0) {
                     tree.mods.flags |= PUBLIC | STATIC;
                 }
-            } else {
-                // We are seeing a local class.
+            } else { // tree是本地类
+                // 调用reader.enterClass()方法生成ClassSymbol对象
                 c = reader.defineClass(tree.name, owner);
+                // (匿名内部类)调用Check类中的localClassName()方法设置对象的flatname值，
+                // localClassName()方法为本地类生成了flatname
                 c.flatname = chk.localClassName(c);
                 if (!c.name.isEmpty())
                     chk.checkTransparentClass(tree.pos(), c, env.info.scope);
             }
         }
+        // 将获取到的ClassSymbol对象保存到tree.sym中，这样就完成了符号的标注
         tree.sym = c;
 
         // Enter class into `compiled' table and enclosing scope.
@@ -383,14 +441,21 @@ public class Enter extends JCTree.Visitor {
             return;
         }
         chk.compiled.put(c.flatname, c);
+        // 填充到宿主类符号的members_field中
         enclScope.enter(c);
-
-        // Set up an environment for class block and store in `typeEnvs'
-        // table, to be retrieved later in memberEnter and attribution.
+        // -------------------------------------------------------------------具体实现的第一部分
+        // -------------------------------------------------------------------具体实现的第二部分
+        // 使用env中保存的上下文信息分析当前类
+        // 如果要分析当前类中的成员，那么就需要调用classEnv()方法创建当前类形成的上下文环境
         Env<AttrContext> localEnv = classEnv(tree, env);
+        // 通过成员变量typeEnvs保存创建出来的localEnv
         typeEnvs.put(c, localEnv);
-
-        // Fill out class fields.
+        // -------------------------------------------------------------------具体实现的第二部分
+        // -------------------------------------------------------------------具体实现的第三部分
+        // c是之前获取到的ClassSymbol对象,为这个对象的completer、sourcefile与members_field变量赋值
+        // 其中completer被赋值为MemberEnter对象memberEnter
+        // MemberEnter类可以完成第二阶段的符号输入，
+        // 也就是将类中的成员符号填充到对应类符号的members_field变量中
         c.completer = memberEnter;
         c.flags_field = chk.checkFlags(tree.pos(), tree.mods.flags, c, tree);
         c.sourcefile = env.toplevel.sourcefile;
@@ -398,10 +463,6 @@ public class Enter extends JCTree.Visitor {
 
         ClassType ct = (ClassType)c.type;
         if (owner.kind != PCK && (c.flags_field & STATIC) == 0) {
-            // We are seeing a local or inner class.
-            // Set outer_field of this class to closest enclosing class
-            // which contains this class in a non-static context
-            // (its "enclosing instance class"), provided such a class exists.
             Symbol owner1 = owner;
             while ((owner1.kind & (VAR | MTH)) != 0 &&
                    (owner1.flags_field & STATIC) == 0) {
@@ -412,16 +473,17 @@ public class Enter extends JCTree.Visitor {
             }
         }
 
-        // Enter type parameters.
+        // 处理类型声明的类型参数(泛型)
         ct.typarams_field = classEnter(tree.typarams, localEnv);
 
-        // Add non-local class to uncompleted, to make sure it will be
-        // completed later.
-        if (!c.isLocal() && uncompleted != null) uncompleted.append(c);
-//      System.err.println("entering " + c.fullname + " in " + c.owner);//DEBUG
+        // 将非本地类的ClassSymbol对象存储到uncompleted列表中，符号输入第二阶段
+        // 将循环这个列表完成符号输入
+        if (!c.isLocal() && uncompleted != null)
+            uncompleted.append(c);
 
-        // Recursively enter all member classes.
+        // 处理类中的成员，主要是处理成员类
         classEnter(tree.defs, localEnv);
+        // -------------------------------------------------------------------具体实现的第三部分
 
         result = c.type;
     }
@@ -444,12 +506,17 @@ public class Enter extends JCTree.Visitor {
      *  is unique.
      */
     @Override
+    // 对类声明的类型变量进行处理(泛型)
     public void visitTypeParameter(JCTypeParameter tree) {
+        // 获取JCTypeParameter对象对应的类型
         TypeVar a = (tree.type != null)
             ? (TypeVar)tree.type
             : new TypeVar(tree.name, env.info.scope.owner, syms.botType);
+        // 将这个类型标注到了tree.type上
         tree.type = a;
+        // env就是在visitClassDef()方法中调用classEnter()方法获取的localEnv
         if (chk.checkUnique(tree.pos(), a.tsym, env.info.scope)) {
+            // 同时获取a.tsym符号并填充到env.info.scope中
             env.info.scope.enter(a.tsym);
         }
         result = a;
@@ -458,6 +525,8 @@ public class Enter extends JCTree.Visitor {
     /** Default class enter visitor method: do nothing.
      */
     @Override
+    // 对除JCCompilationUnit、JCClassDecl与TypeParameter树节点外的其他语法树节点进行处理。
+    // 该方法基本是个空实现，表示第一阶段符号输入不对这些语法树节点进行处理
     public void visitTree(JCTree tree) {
         result = null;
     }
@@ -474,32 +543,42 @@ public class Enter extends JCTree.Visitor {
      *  @param trees      The list of trees to be processed.
      *  @param c          The class symbol to be processed.
      */
+    // 完成符号输入
     public void complete(List<JCCompilationUnit> trees, ClassSymbol c) {
         annotate.enterStart();
         ListBuffer<ClassSymbol> prevUncompleted = uncompleted;
-        if (memberEnter.completionEnabled) uncompleted = new ListBuffer<ClassSymbol>();
+        if (memberEnter.completionEnabled)
+            uncompleted = new ListBuffer<ClassSymbol>();
 
         try {
-            // enter all classes, and construct uncompleted list
+            // 符号输入的第一阶段，将当前编译单元下所有的非本地类的类符号输入到对应owner类的members_field变量中
+            // 调用classEnter()方法完成类符号输入，
+            // 同时还会将除本地类外的所有类对应的ClassSymbol对象存储到uncompleted列表中，
+            // 这样下一个符号输入阶段就可以直接循环uncompleted列表并调用clazz.complete()方法完成每个类中成员符号的填充了。
             classEnter(trees, null);
 
             // complete all uncompleted classes in memberEnter
             if  (memberEnter.completionEnabled) {
+                // 符号输入的第二阶段
                 while (uncompleted.nonEmpty()) {
                     ClassSymbol clazz = uncompleted.next();
                     if (c == null || c == clazz || prevUncompleted == null)
+                        // 完成每个类中成员符号的填充了
+                        // 调用Symbol的complete方法
+                        // 这些ClassSymbol对象的completer在Enter类的visitClassDef()方法中被赋值为MemberEnter对象，
+                        // 在Enter类的complete()方法中调用classEnter()方法完成第一阶段符号输入后，
+                        // 接着会继续进行第二阶段的符号输入
                         clazz.complete();
                     else
                         // defer
                         prevUncompleted.append(clazz);
                 }
-
-                // if there remain any unimported toplevels (these must have
-                // no classes at all), process their import statements as well.
                 for (JCCompilationUnit tree : trees) {
                     if (tree.starImportScope.elems == null) {
                         JavaFileObject prev = log.useSource(tree.sourcefile);
                         Env<AttrContext> topEnv = topLevelEnv(tree);
+                        // 符号输入的第二阶段
+                        // 类中的方法和成员变量将在第二个符号输入阶段进行处理
                         memberEnter.memberEnter(tree, topEnv);
                         log.useSource(prev);
                     }

@@ -316,8 +316,13 @@ public class Main {
     /** Programmatic interface for main function.
      * @param args    The command line parameters.
      */
+    // 入口
     public int compile(String[] args) {
+        // 创建上下文
         Context context = new Context();
+        // 上下文中放入JavacFileManager
+        // 当需要JavacFileManager对象时
+        // JavaFileManager fileManager = context.get(JavaFileManager.class);
         JavacFileManager.preRegister(context); // can't create it until Log has been set up
         int result = compile(args, context);
         if (fileManager instanceof JavacFileManager) {

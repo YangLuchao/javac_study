@@ -40,13 +40,23 @@ public enum StandardLocation implements Location {
     /**
      * Location of new class files.
      */
+    // class文件输出路径 -d命令
     CLASS_OUTPUT,
 
     /**
      * Location of new source files.
      */
+    // 源文件输出路径 -s命令
     SOURCE_OUTPUT,
 
+    // SOURCE_PATH与CLASS_PATH只有在指定了-classpath
+    // 或者-sourcepath命令时才会有用
+    /*
+    两者关系如下
+    当没有指定-sourcepath命令时，在-classpath命令指定的路径下面搜索Java源文件和Class文件
+    当指定-sourcepath命令时，只搜索-classpath命令指定路径下的Class文件，忽略所有的Java源文件，而在-sourcepath命令指定的路径下搜索Java源文件，会忽略所有的Class文件
+    ！!因此一般应该避免指定-sourcepath命令，只指定-classpath命令来搜索依赖的Java源文件和Class文件。
+     */
     /**
      * Location to search for user class files.
      */
@@ -66,6 +76,8 @@ public enum StandardLocation implements Location {
      * Location to search for platform classes.  Sometimes called
      * the boot class path.
      */
+    // 在PLATFORM_CLASS_PATH下搜索Class文件具体会读取JAVA_HOME/lib
+    // 和JAVA_HOME/ext路径下的JAR包
     PLATFORM_CLASS_PATH;
 
     /**

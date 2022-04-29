@@ -33,8 +33,11 @@ package com.sun.tools.javac.code;
  * deletion without notice.</b>
  */
 public enum BoundKind {
+    // 下界通配符
     EXTENDS("? extends "),
+    // 上界通配符
     SUPER("? super "),
+    // 无界通配符
     UNBOUND("?");
 
     private final String name;

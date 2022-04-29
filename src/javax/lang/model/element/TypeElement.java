@@ -59,6 +59,7 @@ import javax.lang.model.util.*;
  * @see DeclaredType
  * @since 1.6
  */
+// 表示一个类或接口符号元素，ClassSymbol类直接实现了这个接口
 public interface TypeElement extends Element, Parameterizable, QualifiedNameable {
     /**
      * {@inheritDoc}

@@ -133,6 +133,7 @@ public class Resolve {
     /** An environment is "static" if its static level is greater than
      *  the one of its outer environment
      */
+    // 法判断是否为静态环境
     static boolean isStatic(Env<AttrContext> env) {
         return env.info.staticLevel > env.outer.info.staticLevel;
     }

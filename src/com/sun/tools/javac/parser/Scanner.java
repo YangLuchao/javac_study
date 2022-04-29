@@ -74,6 +74,7 @@ public class Scanner implements Lexer {
     /**
      * The token, set by nextToken().
      */
+    // 调用nextToken()方法生成的Token对象会赋值给一个名称为token的成员变量
     private Token token;
     /**
      * Allow hex floating-point literals.
@@ -118,14 +119,20 @@ public class Scanner implements Lexer {
     /**
      * A character buffer for literals.
      */
+    // sbuf数组按顺序暂存读入的字符
     private char[] sbuf = new char[128];
+    // sp指示了sbuf中下一个可用的位置
+    // 每次调用nextToken()方法，sp就会被初始化为0
     private int sp;
     /**
      * The input buffer, index of next chacter to be read,
      * index of one past last character in buffer.
      */
+    // 保存了从Java源文件中读入的所有字符,最后一个数组元素的值为EOI，EOI其实就是一个值为0x1A的常量，表示已经没有可读取的字符
     private char[] buf;
+    // bp保存了buf数组中当前要处理的字符的位置，初始化时将bp设置为-1
     private int bp;
+    // buflen保存了buf数组中可读字符的数量，或者说指向了buf数组中可读取字符的最大下标，不包括下标值为buflen的元素
     private int buflen;
     private int eofPos;
     /**
@@ -155,6 +162,7 @@ public class Scanner implements Lexer {
      * array() and compact(), and remaining() must be less than limit().
      */
     protected Scanner(ScannerFactory fac, CharBuffer buffer) {
+        // JavacFileManager.toArray(buffer)：将buffer转化为数组
         this(fac, JavacFileManager.toArray(buffer), buffer.limit());
     }
 
@@ -185,6 +193,8 @@ public class Scanner implements Lexer {
         buflen = inputLength;
         buf[buflen] = EOI;
         bp = -1;
+        // 在处理开始时，通常会调用scanChar()方法将bp值更新为下一个要处理字符的下标位置
+        // bp加1，要处理的ch致为buf的第一个字符
         scanChar();
     }
 
@@ -277,6 +287,7 @@ public class Scanner implements Lexer {
     /**
      * Read next character.
      */
+    // bp值加1，将ch更新为buf数组中保存的下一个待处理的字符
     private void scanChar() {
         ch = buf[++bp];
         if (ch == '\\') {
@@ -301,6 +312,7 @@ public class Scanner implements Lexer {
     /**
      * Append a character to sbuf.
      */
+    // sbuf扩容
     private void putChar(char ch) {
         if (sp == sbuf.length) {
             char[] newsbuf = new char[sbuf.length * 2];
@@ -313,8 +325,10 @@ public class Scanner implements Lexer {
     /**
      * Read next character in character or string literal and copy into sbuf.
      */
+    // 读取下一个字符或string文字，并且复制进sbuf
+    // 处理字符常量
     private void scanLitChar() {
-        if (ch == '\\') {
+        if (ch == '\\') { // 处理转义字符
             if (buf[bp + 1] == '\\' && unicodeConversionBp != bp) {
                 bp++;
                 putChar('\\');
@@ -334,6 +348,7 @@ public class Scanner implements Lexer {
                         int oct = digit(8);
                         scanChar();
                         if ('0' <= ch && ch <= '7') {
+                            // 将八进制表示的数转换为十进制表示，然后强制转换为char类型后调用putChar()方法
                             oct = oct * 8 + digit(8);
                             scanChar();
                             if (leadch <= '3' && '0' <= ch && ch <= '7') {
@@ -379,7 +394,7 @@ public class Scanner implements Lexer {
                         lexError(bp, "illegal.esc.char");
                 }
             }
-        } else if (bp != buflen) {
+        } else if (bp != buflen) {// 处理非转义字符
             putChar(ch);
             scanChar();
         }
@@ -561,10 +576,16 @@ public class Scanner implements Lexer {
     /**
      * Read an identifier.
      */
+    // 将所有组成标识符的字符从buf数组中读取出来按顺序存储到sbuf数组中，
+    // 最后作为参数调用names.fromChars()方法获取NameImpl对象方法
+    // 对字母、数字、下划线、美元符号及一些控制字符不做任何处理，
+    // 直接通过break跳出switch语句后重新执行do-while循环，
+    // 然后将这些字符存储到sbuf数组中，这都是标识符的一部分
     private void scanIdent() {
         boolean isJavaIdentifierPart;
         char high;
         do {
+            // sbuf数组不能存储更多字符，调用putChar()方法进行扩容
             if (sp == sbuf.length) {
                 putChar(ch);
             } else {
@@ -663,7 +684,7 @@ public class Scanner implements Lexer {
                 case '\u007F':
                     break;
                 case '\u001A': // EOI is also a legal identifier part
-                    if (bp >= buflen) {
+                    if (bp >= buflen) {// 已经没有待处理的字符了
                         name = names.fromChars(sbuf, 0, sp);
                         token = keywords.key(name);
                         return;
@@ -671,9 +692,11 @@ public class Scanner implements Lexer {
                     break;
                 default:
                     if (ch < '\u0080') {
-                        // all ASCII range chars already handled, above
+                        // ch是ASCII编码中的一个字符
+                        // 所有合法的ASCII字符已经在上面的case分支中进行了处理
                         isJavaIdentifierPart = false;
                     } else {
+                        // 获取高代理项
                         high = scanSurrogates();
                         if (high != 0) {
                             if (sp == sbuf.length) {
@@ -681,14 +704,19 @@ public class Scanner implements Lexer {
                             } else {
                                 sbuf[sp++] = high;
                             }
+                            // 方法会判断通过高代理项和低代理项表示的字符是否为合法
+                            // 标识符的首字符
                             isJavaIdentifierPart = Character.isJavaIdentifierPart(
                                     Character.toCodePoint(high, ch));
                         } else {
                             isJavaIdentifierPart = Character.isJavaIdentifierPart(ch);
                         }
                     }
+                    // 生成Name和Token对象
                     if (!isJavaIdentifierPart) {
+                        // 生成Name对象
                         name = names.fromChars(sbuf, 0, sp);
+                        // 转化为Token对象
                         token = keywords.key(name);
                         return;
                     }
@@ -721,6 +749,7 @@ public class Scanner implements Lexer {
     /**
      * Return true if ch can be part of an operator.
      */
+    // 判断是否为标识符号或标识符号的一部分
     private boolean isSpecial(char ch) {
         switch (ch) {
             case '!':
@@ -748,6 +777,7 @@ public class Scanner implements Lexer {
      * Read longest possible sequence of special characters and convert
      * to token.
      */
+    // 扫描出完整的标识符号
     private void scanOperator() {
         while (true) {
             putChar(ch);
@@ -891,29 +921,45 @@ public class Scanner implements Lexer {
 
             while (true) {
                 pos = bp;
-                switch (ch) {
-                    case ' ': // (Spec 3.6)
-                    case '\t': // (Spec 3.6)
-                    case FF: // (Spec 3.6)
+                // switch语句会根据首个出现的字符来判断可能生成的Token对象
+                switch (ch) { // switch语句所有的处理分支可大概分为以下8类
+                    /*
+			        1、特殊字符的处理
+			        2、标识符的处理
+			        3、数字的处理
+			        4、分隔符的处理
+			        5、斜线作为首字符的处理
+			        6、单引号作为首字符的处理
+			        7、双引号作为首字符的处理
+			        8、默认的处理
+                     */
+                    // -------------------------------特殊字符的处理
+                    // 这些字符都不会生成具体的Token对象，在当前的词法分析阶段调用scanChar()方法直接摒弃这些字符
+                    case ' ': // (Spec 3.6) 空格
+                    case '\t': // (Spec 3.6) 水平制表符
+                    case FF: // (Spec 3.6) 换行换页符
+                        // 将空格、水平制表符与换页符当作空白字符来处理
                         do {
                             scanChar();
                         } while (ch == ' ' || ch == '\t' || ch == FF);
                         endPos = bp;
                         processWhiteSpace();
                         break;
-                    case LF: // (Spec 3.4)
+                    case LF: // (Spec 3.4) 换行符
                         scanChar();
                         endPos = bp;
                         processLineTerminator();
                         break;
-                    case CR: // (Spec 3.4)
+                    case CR: // (Spec 3.4) 回车
                         scanChar();
-                        if (ch == LF) {
+                        if (ch == LF) { // 换行
                             scanChar();
                         }
                         endPos = bp;
                         processLineTerminator();
                         break;
+                    // ----------------------------------特殊字符的处理
+                    // ----------------------------------标识符的处理
                     case 'A':
                     case 'B':
                     case 'C':
@@ -968,20 +1014,28 @@ public class Scanner implements Lexer {
                     case 'z':
                     case '$':
                     case '_':
+                        // 获取标识符
                         scanIdent();
                         return;
+                    // ----------------------------------标识符的处理
+                    // ----------------------------------数组处理
                     case '0':
                         scanChar();
+                        // 处理十六进制表示的整数或者浮点数
+                        // 0x或0X开头时，按十六进制数字处理
                         if (ch == 'x' || ch == 'X') {
                             scanChar();
                             skipIllegalUnderscores();
                             if (ch == '.') {
                                 scanHexFractionAndSuffix(false);
+                                // 处理十六进制中的小数及后缀部分
                             } else if (digit(16) < 0) {
                                 lexError("invalid.hex.number");
                             } else {
                                 scanNumber(16);
                             }
+                            // 处理二进制表示的整数
+                            // 以0b或0B开头时，按二进制数字处理
                         } else if (ch == 'b' || ch == 'B') {
                             if (!allowBinaryLiterals) {
                                 lexError("unsupported.binary.lit", source.name);
@@ -995,6 +1049,7 @@ public class Scanner implements Lexer {
                                 scanNumber(2);
                             }
                         } else {
+                            // 处理八进制表示的整数或浮点数
                             putChar('0');
                             if (ch == '_') {
                                 int savePos = bp;
@@ -1021,6 +1076,7 @@ public class Scanner implements Lexer {
                         return;
                     case '.':
                         scanChar();
+                        // 处理十进制中的小数及后缀部分
                         if ('0' <= ch && ch <= '9') {
                             putChar('.');
                             scanFractionAndSuffix();
@@ -1036,9 +1092,12 @@ public class Scanner implements Lexer {
                                 lexError("malformed.fp.lit");
                             }
                         } else {
+                            // 处理分隔符
                             token = DOT;
                         }
                         return;
+                    // ----------------------------------数组处理
+                    // ----------------------------------分隔符处理
                     case ',':
                         scanChar();
                         token = COMMA;
@@ -1071,8 +1130,12 @@ public class Scanner implements Lexer {
                         scanChar();
                         token = RBRACE;
                         return;
+                    // ----------------------------------分隔符处理
+                    // ----------------------------------斜杠作为首字符的处理
+                    // 以斜杠“/”作为首字符的可能为注释，如单行注释、多行注释或文档注释，还可能是除法运算符“/” 或者复合赋值运算符“/=”
                     case '/':
                         scanChar();
+                        // 单行注释
                         if (ch == '/') {
                             do {
                                 scanCommentChar();
@@ -1082,6 +1145,7 @@ public class Scanner implements Lexer {
                                 processComment(CommentStyle.LINE);
                             }
                             break;
+                            // 多行注释或文档注释
                         } else if (ch == '*') {
                             scanChar();
                             CommentStyle style;
@@ -1110,15 +1174,21 @@ public class Scanner implements Lexer {
                                 lexError("unclosed.comment");
                                 return;
                             }
+                            // 复合赋值运算符
                         } else if (ch == '=') {
                             name = names.slashequals;
                             token = SLASHEQ;
                             scanChar();
+                            // 除法运算符
                         } else {
                             name = names.slash;
                             token = SLASH;
                         }
                         return;
+                    // ----------------------------------分隔符处理
+                    // ----------------------------------单引号作为首字符的处理
+                    // 单引号作为首字符的只能是字符常量
+                    // 在Java源代码中，单引号作为首字符通常表示字符常量。调用scanLitChar()方法扫描字符常量，最后将token直接赋值为CHARLITERAL
                     case '\'':
                         scanChar();
                         if (ch == '\'') {
@@ -1127,17 +1197,24 @@ public class Scanner implements Lexer {
                             if (ch == CR || ch == LF) {
                                 lexError(pos, "illegal.line.end.in.char.lit");
                             }
+                            // 处理字符常量
                             scanLitChar();
                             if (ch == '\'') {
                                 scanChar();
+                                // 字符常量
                                 token = CHARLITERAL;
                             } else {
                                 lexError(pos, "unclosed.char.lit");
                             }
                         }
                         return;
+                    // ----------------------------------单引号作为首字符的处理
+                    // ----------------------------------双引号作为首字符的处理
+                    // 双引号作为首字符的只能是字符串常量
                     case '\"':
                         scanChar();
+                        // 当ch不为双引号、不为回车换行且有待处理字符时，调用scanLitChar()方法扫描
+                        // 字符串常量
                         while (ch != '\"' && ch != CR && ch != LF && bp < buflen) {
                             scanLitChar();
                         }
@@ -1148,15 +1225,22 @@ public class Scanner implements Lexer {
                             lexError(pos, "unclosed.str.lit");
                         }
                         return;
+                    // ----------------------------------双引号作为首字符的处理
+                    // ----------------------------------默认处理分支
                     default:
+                        // 首先调用isSpecial()方法判断是否可能为标识符号，如果是就调用scanOperator()方法进行处理，否则可能是标识符的首字符
                         if (isSpecial(ch)) {
+                            // 调用scanOperator()方法扫描出完整的标识符号
                             scanOperator();
                         } else {
+                            // 当isJavaIdentifierStart的值为true时，表示是合法标识符的首字符
                             boolean isJavaIdentifierStart;
                             if (ch < '\u0080') {
                                 // all ASCII range chars already handled, above
+                                // ch是ASCII编码中的一个字符
                                 isJavaIdentifierStart = false;
                             } else {
+                                // 获取高代理项
                                 char high = scanSurrogates();
                                 if (high != 0) {
                                     if (sp == sbuf.length) {
@@ -1164,16 +1248,21 @@ public class Scanner implements Lexer {
                                     } else {
                                         sbuf[sp++] = high;
                                     }
-
+                                    // 方法会判断通过高代理项和低代理项表示的字符是否合法
+                                    // 标识符的首字符
                                     isJavaIdentifierStart = Character.isJavaIdentifierStart(
                                             Character.toCodePoint(high, ch));
                                 } else {
                                     isJavaIdentifierStart = Character.isJavaIdentifierStart(ch);
                                 }
                             }
+                            // 合法的标识符首字符
                             if (isJavaIdentifierStart) {
+                                // 调用scanIdent()方法进行处理
                                 scanIdent();
+                                // 判断bp是否等于buflen，如果等于，说明当前的ch是最后一个字符，可不处理；或者判断是否为特殊的结尾字符EOI
                             } else if (bp == buflen || ch == EOI && bp + 1 == buflen) { // JLS 3.5
+                                // 已经没有待处理的字符了
                                 token = EOF;
                                 pos = bp = eofPos;
                             } else {

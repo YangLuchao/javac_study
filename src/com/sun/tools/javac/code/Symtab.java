@@ -81,10 +81,12 @@ public class Symtab {
 
     /** A symbol for the root package.
      */
+    // rootPackage是所有一级包名对应的PackageSymbol对象的owner值
     public final PackageSymbol rootPackage;
 
     /** A symbol for the unnamed package.
      */
+    // unnamedPackage表示当前的编译单元没有包名,其owner值也是syms.rootPackage
     public final PackageSymbol unnamedPackage;
 
     /** A symbol that stands for a missing symbol.
@@ -183,12 +185,14 @@ public class Symtab {
      *  It should be updated from the outside to reflect classes defined
      *  by compiled source files.
      */
+    // 全局 name 和 类引用的映射，依赖的处理
     public final Map<Name, ClassSymbol> classes = new HashMap<Name, ClassSymbol>();
 
     /** A hashtable containing the encountered packages.
      *  the table should be updated from outside to reflect packages defined
      *  by compiled source files.
      */
+    // 全局 name 和 包引用的映射，依赖的处理
     public final Map<Name, PackageSymbol> packages = new HashMap<Name, PackageSymbol>();
 
     public void initType(Type type, ClassSymbol c) {
@@ -237,6 +241,7 @@ public class Symtab {
     private void enterBinop(String name,
                             Type left, Type right, Type res,
                             int opcode) {
+        // 然后将这些对象保存到ClassSymbol对象的predefClass中，更具体说就是保存到了predefClass的members_field中。
         predefClass.members().enter(
             new OperatorSymbol(
                 names.fromString(name),
@@ -264,6 +269,7 @@ public class Symtab {
      *  @param res      The operation's result type.
      *  @param opcode   The operation's bytecode instruction.
      */
+    // 相同运算符不同类型的操作数类型创建唯一的OperatorSymbol对象
     private OperatorSymbol enterUnop(String name,
                                      Type arg,
                                      Type res,
@@ -354,8 +360,10 @@ public class Symtab {
         };
 
         // create the basic builtin symbols
+        // rootPackage是所有一级包名对应的PackageSymbol对象的owner值
         rootPackage = new PackageSymbol(names.empty, null);
         final JavacMessages messages = JavacMessages.instance(context);
+        // 初始化unnamedPackage对象
         unnamedPackage = new PackageSymbol(names.empty, rootPackage) {
                 public String toString() {
                     return messages.getLocalizedString("compiler.misc.unnamed.package");
@@ -402,6 +410,7 @@ public class Symtab {
         methodClass.members_field = new Scope.ErrorScope(boundClass);
 
         // Create class to hold all predefined constants and operations.
+        // 然后将这些对象保存到ClassSymbol对象的predefClass中，更具体说就是保存到了predefClass的members_field中。
         predefClass = new ClassSymbol(PUBLIC|ACYCLIC, names.empty, rootPackage);
         Scope scope = new Scope(predefClass);
         predefClass.members_field = scope;
@@ -423,6 +432,8 @@ public class Symtab {
         classes.put(predefClass.fullname, predefClass);
 
         reader = ClassReader.instance(context);
+        // 初始化ClassReader
+        // packages与classes也会在任何编译阶段开始之前初始化
         reader.init(this);
 
         // Enter predefined classes.
@@ -523,6 +534,7 @@ public class Symtab {
         arrayClass.members().enter(arrayCloneMethod);
 
         // Enter operators.
+        // 预先进行运算符的重载，也就是为不同的运算符、相同运算符不同类型的操作数类型创建唯一的OperatorSymbol对象
         enterUnop("+", doubleType, doubleType, nop);
         enterUnop("+", floatType, floatType, nop);
         enterUnop("+", longType, longType, nop);
@@ -556,6 +568,7 @@ public class Symtab {
         nullcheck = enterUnop("<*nullchk*>", objectType, objectType, nullchk);
 
         // string concatenation
+        // 预先进行运算符的重载，也就是为不同的运算符、相同运算符不同类型的操作数类型创建唯一的OperatorSymbol对象
         enterBinop("+", stringType, objectType, stringType, string_add);
         enterBinop("+", objectType, stringType, stringType, string_add);
         enterBinop("+", stringType, stringType, stringType, string_add);

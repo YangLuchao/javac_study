@@ -34,6 +34,7 @@ package com.sun.tools.javac.util;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// Javac会将Java源代码中用到的字符串封装为Name对象
 public abstract class Name implements javax.lang.model.element.Name {
 
     public final Table table;
@@ -222,6 +223,8 @@ public abstract class Name implements javax.lang.model.element.Name {
 
         /** The hashcode of a name.
          */
+        // 这个方法针对相同的bytes数组计算出相同的哈希值
+        // 保证了相同的字节数组得到相同的槽位值
         protected static int hashValue(byte bytes[], int offset, int length) {
             int h = 0;
             int off = offset;

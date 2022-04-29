@@ -169,19 +169,25 @@ public class Convert {
                                 int len) {
         int j = dindex;
         int limit = sindex + len;
+        // 循环处理src数组中的每个字符
+        // src数组保存的字符都是UTF-8编码，所以一个字符可能会转换为多个字节存储
         for (int i = sindex; i < limit; i++) {
             char ch = src[i];
+            // 字符使用单字节表示
             if (1 <= ch && ch <= 0x7F) {
                 dst[j++] = (byte)ch;
+                // 字符使用双字节表示
             } else if (ch <= 0x7FF) {
                 dst[j++] = (byte)(0xC0 | (ch >> 6));
                 dst[j++] = (byte)(0x80 | (ch & 0x3F));
             } else {
+                // 字符使用三字节表示
                 dst[j++] = (byte)(0xE0 | (ch >> 12));
                 dst[j++] = (byte)(0x80 | ((ch >> 6) & 0x3F));
                 dst[j++] = (byte)(0x80 | (ch & 0x3F));
             }
         }
+        // 返回dst的下一个可用位置j
         return j;
     }
 

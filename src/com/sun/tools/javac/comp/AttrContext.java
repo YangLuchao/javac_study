@@ -36,14 +36,22 @@ import com.sun.tools.javac.code.*;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 通过Env对象的info变量来保存AttrContext对象，AttrContext对象中保存一些特殊的信息
 public class AttrContext {
 
     /** The scope of local symbols.
      */
+    // AttrContext类中定义的scope是Scope类型，
+    // 由于Env对象有着对应语法树的层次结构，
+    // 因而通过info保存的AttrContext对象与通过AttrContext对象的scope保存的Scope对象也都具有这种层次结构，
+    // 这种设计在Javac后序编译的各个阶段可以灵活操作具体的上下文环境
     Scope scope = null;
 
     /** The number of enclosing `static' modifiers.
      */
+    // staticLevel与Env类的outer辅助判断当前是否为静态环境。
+    // 由于静态环境无法引用非静态环境的实例成员，因此经在查找具体的符号引用时，需要对这一语法规则进行判断
+    // 默认为非静态为0，静态为1
     int staticLevel = 0;
 
     /** Is this an environment for a this(...) or super(...) call?

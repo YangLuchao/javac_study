@@ -43,68 +43,81 @@ public enum TypeKind {
     /**
      * The primitive type {@code boolean}.
      */
+    // 基本类型 boolean
     BOOLEAN,
 
     /**
      * The primitive type {@code byte}.
      */
+    // 基本类型 byte
     BYTE,
 
     /**
      * The primitive type {@code short}.
      */
+    // 基本类型 short
     SHORT,
 
     /**
      * The primitive type {@code int}.
      */
+    // 基本类型 int
     INT,
 
     /**
      * The primitive type {@code long}.
      */
+    // 基本类型 long
     LONG,
 
     /**
      * The primitive type {@code char}.
      */
+    // 基本类型 char
     CHAR,
 
     /**
      * The primitive type {@code float}.
      */
+    // 基本类型 float
     FLOAT,
 
     /**
      * The primitive type {@code double}.
      */
+    // 基本类型 double
     DOUBLE,
 
     /**
      * The pseudo-type corresponding to the keyword {@code void}.
      * @see NoType
      */
+    // void
     VOID,
 
     /**
      * A pseudo-type used where no actual type is appropriate.
      * @see NoType
      */
+    // none
     NONE,
 
     /**
      * The null type.
      */
+    // null
     NULL,
 
     /**
      * An array type.
      */
+    // 数组类型
     ARRAY,
 
     /**
      * A class or interface type.
      */
+    // 类 ClassType
     DECLARED,
 
     /**
@@ -115,22 +128,26 @@ public enum TypeKind {
     /**
      * A type variable.
      */
+    // 类变量 TypeVar
     TYPEVAR,
 
     /**
      * A wildcard type argument.
      */
+    //
     WILDCARD,
 
     /**
      * A pseudo-type corresponding to a package element.
      * @see NoType
      */
+    // 包
     PACKAGE,
 
     /**
      * A method, constructor, or initializer.
      */
+    // 构造器 或 初始化方法
     EXECUTABLE,
 
     /**

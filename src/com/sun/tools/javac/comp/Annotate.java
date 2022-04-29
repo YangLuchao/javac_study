@@ -79,7 +79,8 @@ public class Annotate {
  *********************************************************************/
 
     private int enterCount = 0;
-
+    // 调用later()方法可以向列表末尾追加数据
+    // 调用earlier()方法可以向列表头部追加数据
     ListBuffer<Annotator> q = new ListBuffer<Annotator>();
 
     public void later(Annotator a) {
@@ -106,6 +107,7 @@ public class Annotate {
         enterCount++;
         try {
             while (q.nonEmpty())
+                // 除静态类型的其他静态成员的导入
                 q.next().enterAnnotation();
         } finally {
             enterCount--;

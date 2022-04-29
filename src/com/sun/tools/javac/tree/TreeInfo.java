@@ -739,6 +739,8 @@ public class TreeInfo {
 
     /** Map operators to their precedence levels.
      */
+    // 调用TreeInfo类的opPrec()方法获取除赋值运算符以外所有二元运算符的优先级
+    // 其中优先级的数值越大则表示优先级越高
     public static int opPrec(int op) {
         switch(op) {
         case JCTree.POS:

@@ -74,6 +74,7 @@ public class ScannerFactory {
             if (keepDocComments)
                 return new DocCommentScanner(this, buf);
             else
+                // new Scanner
                 return new Scanner(this, buf);
         } else {
             char[] array = input.toString().toCharArray();

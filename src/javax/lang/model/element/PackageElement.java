@@ -35,6 +35,7 @@ package javax.lang.model.element;
  * @see javax.lang.model.util.Elements#getPackageOf
  * @since 1.6
  */
+// 表示一个包符号元素，PackageSymbol类直接实现了PackageElement接口。
 public interface PackageElement extends Element, QualifiedNameable {
 
     /**

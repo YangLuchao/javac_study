@@ -40,6 +40,9 @@ import javax.lang.model.type.*;
  * @see ExecutableType
  * @since 1.6
  */
+// 表示方法、匿名块和注解类型元素。在Javac中把匿名块当作方法来处理，
+// 而注解类型元素其实也是在注解类中声明的方法，因此可以通过ExecutableElement来表示。
+// MethodSymbol类直接实现了这个接口
 public interface ExecutableElement extends Element, Parameterizable {
     /**
      * Returns the formal type parameters of this executable

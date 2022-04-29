@@ -159,15 +159,23 @@ public class ClassReader implements Completer {
      *  the completer to be used for ".java" files. If this remains unassigned
      *  ".java" files will not be loaded.
      */
+    // 在JavaCompiler类的构造方法中会将sourceCompleter初始化为当前的JavaCompiler对象，
+    // 这样就可以调用complete()方法读取Java源文件的内容了
     public SourceCompleter sourceCompleter = null;
 
     /** A hashtable containing the encountered top-level and member classes,
      *  indexed by flat names. The table does not contain local classes.
      */
+    // 全局 name 和 类型引用的映射关系
+    // classes对类符号进行缓存
+    // 依赖的处理
     private Map<Name,ClassSymbol> classes;
 
     /** A hashtable containing the encountered packages.
      */
+    // 全局 name 和 包引用的映射关系
+    // packages对包符号进行缓存
+    // 依赖的处理
     private Map<Name, PackageSymbol> packages;
 
     /** The current scope where type variables are entered.
@@ -238,16 +246,20 @@ public class ClassReader implements Completer {
     private void init(Symtab syms, boolean definitive) {
         if (classes != null) return;
 
+        // packages与classes也会在任何编译阶段开始之前初始化
         if (definitive) {
             Assert.check(packages == null || packages == syms.packages);
+            // 初始化packages
             packages = syms.packages;
             Assert.check(classes == null || classes == syms.classes);
+            // 初始化classes
             classes = syms.classes;
         } else {
             packages = new HashMap<Name, PackageSymbol>();
             classes = new HashMap<Name, ClassSymbol>();
         }
 
+        // 初始化packages
         packages.put(names.empty, syms.rootPackage);
         syms.rootPackage.completer = this;
         syms.unnamedPackage.completer = this;
@@ -2050,10 +2062,15 @@ public class ClassReader implements Completer {
 
     /** Define a new class given its name and owner.
      */
+    // 定义Class
     public ClassSymbol defineClass(Name name, Symbol owner) {
+        // new ClassSymbol
         ClassSymbol c = new ClassSymbol(0, name, owner);
+        // 如果owner为包，必须已经生成并缓存
         if (owner.kind == PCK)
             Assert.checkNull(classes.get(c.flatname), c);
+        // 指定编译者
+        // 可以调用completer的complete()方法完成类中成员符号的填充
         c.completer = this;
         return c;
     }
@@ -2061,12 +2078,16 @@ public class ClassReader implements Completer {
     /** Create a new toplevel or member class symbol with given name
      *  and owner and enter in `classes' unless already there.
      */
+    // 生成ClassSymbol，并放入classes中
+    // owner 可能为PackageSymbol对象或ClassSymbol对象。如果为PackageSymbol对象，则name是顶层类的名称，如果为ClassSymbol对象，则name是成员类型的名称。
     public ClassSymbol enterClass(Name name, TypeSymbol owner) {
         Name flatname = TypeSymbol.formFlatName(name, owner);
         ClassSymbol c = classes.get(flatname);
+        // 当缓存中没有对应的ClassSymbol对象时，调用defineClass()方法创建一个并存储到classes缓存中
         if (c == null) {
             c = defineClass(name, owner);
             classes.put(flatname, c);
+            // 更新已创建的ClassSymbol对象的相关信息
         } else if ((c.name != name || c.owner != owner) && owner.kind == TYP && c.owner.kind == PCK) {
             // reassign fields of classes that might have been loaded with
             // their flat names.
@@ -2088,6 +2109,7 @@ public class ClassReader implements Completer {
      * @return a newly created class symbol
      * @throws AssertionError if the class symbol already exists
      */
+    // 生成ClassSymbol对象并缓存到classes中
     public ClassSymbol enterClass(Name flatName, JavaFileObject classFile) {
         ClassSymbol cs = classes.get(flatName);
         if (cs != null) {
@@ -2098,10 +2120,13 @@ public class ClassReader implements Completer {
                                     cs.sourcefile);
             throw new AssertionError(msg);
         }
+        // 首先调用Convert.packagePart()从类的flatname中获取包名部分，然后根据包名得到PackageSymbol对象，
+        // 当packageName为空时，获取syms.unnamedPackage
         Name packageName = Convert.packagePart(flatName);
         PackageSymbol owner = packageName.isEmpty()
                                 ? syms.unnamedPackage
                                 : enterPackage(packageName);
+        // 根据类型名称创建一个ClassSymbol对象
         cs = defineClass(Convert.shortName(flatName), owner);
         cs.classfile = classFile;
         classes.put(flatName, cs);
@@ -2111,8 +2136,24 @@ public class ClassReader implements Completer {
     /** Create a new member or toplevel class symbol with given flat name
      *  and enter in `classes' unless already there.
      */
+    // 调用ClassReader类中的enterClass()方法创建ClassSymbol对象
     public ClassSymbol enterClass(Name flatname) {
+        /*
+        import compile.Test;
+        public class Test{
+            ImportedTest a;
+        }
+        当编译其中一个编译单元时会检查classes中是否已经存在flatname为compile.Test的ClassSymbol对象，
+        如果不存在，新建ClassSymbol对象并存储到classes中
+        处理导入声明时，会为包名compile建立对应的PackageSymbol对象并给completer赋值为ClassReader对象
+        当分析定义变量a的语句时，a变量声明的类型ImportedTest是compile包下定义的类
+        Javac会获取PackageSymbol对象，然后调用对象的complete()方法加载compile包下定义的所有类
+        最终会调用ClassReader对象的complete()方法来完成加载
+         */
+        // 当另外一个编译单元处理相同的导入声明时，就会重用ClassSymbol对象，
+        // 保证两个不同编译单元导入的ClassSymbol对象是同一个
         ClassSymbol c = classes.get(flatname);
+        // 如果还没有创建类型名称对应的ClassSymbol对象，调用enterClass()方法创建一个
         if (c == null)
             return enterClass(flatname, (JavaFileObject)null);
         else
@@ -2125,21 +2166,27 @@ public class ClassReader implements Completer {
      *  we make sure its enclosing class (if any) is loaded.
      */
     public void complete(Symbol sym) throws CompletionFailure {
+        // 当sym.kind值为TYP时会加载类成员并将成员符号填充到ClassSymbol对象的members_field中
         if (sym.kind == TYP) {
             ClassSymbol c = (ClassSymbol)sym;
             c.members_field = new Scope.ErrorScope(c); // make sure it's always defined
             boolean saveSuppressFlush = suppressFlush;
             suppressFlush = true;
             try {
+                // 调用completeOwners()方法与completeEnclosing()方法确保sym是嵌套类时，
+                // 其宿主类已经完成了符号的填充
                 completeOwners(c.owner);
                 completeEnclosing(c);
             } finally {
                 suppressFlush = saveSuppressFlush;
             }
+            // 开始填充
             fillIn(c);
         } else if (sym.kind == PCK) {
             PackageSymbol p = (PackageSymbol)sym;
             try {
+                // 包下成员符号的填充通过调用fillIn()方法来完成
+                // 文件搜索的入口
                 fillIn(p);
             } catch (IOException ex) {
                 throw new CompletionFailure(sym, ex.getLocalizedMessage()).initCause(ex);
@@ -2150,8 +2197,11 @@ public class ClassReader implements Completer {
     }
 
     /** complete up through the enclosing package. */
+    // 编译宿主
     private void completeOwners(Symbol o) {
-        if (o.kind != PCK) completeOwners(o.owner);
+        if (o.kind != PCK)
+            completeOwners(o.owner);
+        // 顶层宿主要先编译
         o.complete();
     }
 
@@ -2183,14 +2233,18 @@ public class ClassReader implements Completer {
     /** Fill in definition of class `c' from corresponding class or
      *  source file.
      */
+    // 填充类引用的符号表
     private void fillIn(ClassSymbol c) {
         if (completionFailureName == c.fullname) {
             throw new CompletionFailure(c, "user-selected completion failure by class name");
         }
         currentOwner = c;
         warnedAttrs.clear();
+        // 文件对象
         JavaFileObject classfile = c.classfile;
         if (classfile != null) {
+            // 当classfile为Class文件时，调用readClassFile()方法填充类中的成员符号，
+            // 否则classfile为Java源代码，调用SourceCompleter类的complete()方法填充
             JavaFileObject previousClassFile = currentClassFile;
             try {
                 if (filling) {
@@ -2200,10 +2254,12 @@ public class ClassReader implements Completer {
                 if (verbose) {
                     log.printVerbose("loading", currentClassFile.toString());
                 }
+                // 文件为.class对象
                 if (classfile.getKind() == JavaFileObject.Kind.CLASS) {
                     filling = true;
                     try {
                         bp = 0;
+                        // 读取数据存到buf数组中
                         buf = readInputStream(buf, classfile.openInputStream());
                         readClassFile(c);
                         if (!missingTypeVariables.isEmpty() && !foundTypeVariables.isEmpty()) {
@@ -2228,7 +2284,9 @@ public class ClassReader implements Completer {
                         filling = false;
                     }
                 } else {
+                    // java源文件
                     if (sourceCompleter != null) {
+                        // 调用sourceCompleter的complete()方法完成成员符号的填充
                         sourceCompleter.complete(c);
                     } else {
                         throw new IllegalStateException("Source completer required to read "
@@ -2249,6 +2307,7 @@ public class ClassReader implements Completer {
         }
     }
     // where
+        // 按照Java虚拟机规定的Class文件格式进行读取
         private static byte[] readInputStream(byte[] buf, InputStream s) throws IOException {
             try {
                 buf = ensureCapacity(buf, s.available());
@@ -2338,13 +2397,29 @@ public class ClassReader implements Completer {
 
     /** Make a package, given its fully qualified name.
      */
+    // 调用ClassReader类中的enterPackage()方法创建PackageSymbol对象
     public PackageSymbol enterPackage(Name fullname) {
+        /*
+        import a.b.c.d
+        在处理导入声明时
+        会分别生成a,a.b,a.b.c三个包符号对象
+        存入packages对象
+         */
+        // 如果还没有创建包名对应的PackageSymbol对象，需要创建一个并将其存储到缓存packages中
         PackageSymbol p = packages.get(fullname);
         if (p == null) {
             Assert.check(!fullname.isEmpty(), "rootPackage missing!");
             p = new PackageSymbol(
                 Convert.shortName(fullname),
+                // Convert.packagePart()方法获取flatname的包名部分
+                // 当fullname为一级包名时，调用Convert.packagePart()方法将获取一个空字符串，
+                // 所以再递归调用enterPackage()方法从packages中取值时会取出syms.rootPackage，
+                // 这就是一级包名的PackageSymbol对象的owner值。
                 enterPackage(Convert.packagePart(fullname)));
+            // 为completer变量赋值为当前的ClassReader对象
+            // ClassReader类继承了Symbol.Completer接口并实现了接口中声明的complete()方法
+            // 调用completer的complete()方法可以完成成员符号的填充，将这个包下的所有类看作这个包的成员，
+            // 调用complete()方法后会将所有类填充到PackageSymbol对象的members_field中
             p.completer = this;
             packages.put(fullname, p);
         }
@@ -2368,32 +2443,38 @@ public class ClassReader implements Completer {
                 q.flags_field |= EXISTS;
         JavaFileObject.Kind kind = file.getKind();
         int seen;
+        // 判断file是Java源文件还是Class文件，如果是Java源文件，
+        // ClassSymbol对象的flags_field中标注SOURCE_SEEN；如果是Class文件，则在flags_field中标注CLASS_SEEN。
         if (kind == JavaFileObject.Kind.CLASS)
             seen = CLASS_SEEN;
         else
             seen = SOURCE_SEEN;
+        // 二进制名：compile.ImportedTest
         String binaryName = fileManager.inferBinaryName(currentLoc, file);
         int lastDot = binaryName.lastIndexOf(".");
+        // 简短名称ImportedTest
         Name classname = names.fromString(binaryName.substring(lastDot + 1));
         boolean isPkgInfo = classname == names.package_info;
+        // 然后在p.members_field中查找名称为classname的ClassSymbol对象
         ClassSymbol c = isPkgInfo
             ? p.package_info
             : (ClassSymbol) p.members_field.lookup(classname).sym;
+        // 当前的c还没有填充到p.members_field中，调用enterClass()方法获取
+        // ClassSymbol对象并填充到PackageSymbol对象的members_field中
         if (c == null) {
+            // 生成ClassSymbol对象
             c = enterClass(classname, p);
-            if (c.classfile == null) // only update the file if's it's newly created
+            if (c.classfile == null)
+                // 这对于后续ClassSymbol对象成员符号的加载非常重要，因为只有找到对应的文件才能读取类中成员的具体信息
                 c.classfile = file;
             if (isPkgInfo) {
                 p.package_info = c;
             } else {
                 if (c.owner == p)  // it might be an inner class
+                    // 填充到PackageSymbol的成员变量的符号表中
                     p.members_field.enter(c);
             }
         } else if (c.classfile != null && (c.flags_field & seen) == 0) {
-            // if c.classfile == null, we are currently compiling this class
-            // and no further action is necessary.
-            // if (c.flags_field & seen) != 0, we have already encountered
-            // a file of the same kind; again no further action is necessary.
             if ((c.flags_field & (CLASS_SEEN | SOURCE_SEEN)) != 0)
                 c.classfile = preferredFileObject(file, c.classfile);
         }
@@ -2422,6 +2503,7 @@ public class ClassReader implements Completer {
      * specifies types of files to be read when filling in a package symbol
      */
     protected EnumSet<JavaFileObject.Kind> getPackageFileKinds() {
+        // 需要的文件包含两种类型.class .java
         return EnumSet.of(JavaFileObject.Kind.CLASS, JavaFileObject.Kind.SOURCE);
     }
 
@@ -2437,13 +2519,17 @@ public class ClassReader implements Completer {
 
     /** Load directory of package into members scope.
      */
+    // 包下成员符号的填充通过调用fillIn()方法来完成
     private void fillIn(PackageSymbol p) throws IOException {
-        if (p.members_field == null) p.members_field = new Scope(p);
+        if (p.members_field == null)
+            p.members_field = new Scope(p);
         String packageName = p.fullname.toString();
-
+        // 需要的文件包含两种类型，.class/.java
         Set<JavaFileObject.Kind> kinds = getPackageFileKinds();
-
+        // 调用list()方法从PLATFORM_CLASS_PATH中查找文件并调用fillIn()方法填充
+        // PackageSymbol对象的members_field
         fillIn(p, PLATFORM_CLASS_PATH,
+               // 查找工程下所有的.class文件
                fileManager.list(PLATFORM_CLASS_PATH,
                                 packageName,
                                 EnumSet.of(JavaFileObject.Kind.CLASS),
@@ -2487,22 +2573,26 @@ public class ClassReader implements Completer {
                 }
             }
         }
-
+        // 调用list()方法从CLASS_PATH或SOURCE_PATH中查找文件并调用fillIn()方法填充
+        // PackageSymbol对象的members_field
         if (wantSourceFiles && !haveSourcePath) {
             fillIn(p, CLASS_PATH,
-                   fileManager.list(CLASS_PATH,
+                    // 从classpath下查找文件
+                    fileManager.list(CLASS_PATH,
                                     packageName,
                                     kinds,
                                     false));
         } else {
             if (wantClassFiles)
                 fillIn(p, CLASS_PATH,
-                       fileManager.list(CLASS_PATH,
+                        // 从classpath下查找文件
+                        fileManager.list(CLASS_PATH,
                                         packageName,
                                         classKinds,
                                         false));
             if (wantSourceFiles)
                 fillIn(p, SOURCE_PATH,
+                       // 从sourcepath下查找文件
                        fileManager.list(SOURCE_PATH,
                                         packageName,
                                         sourceKinds,
@@ -2511,20 +2601,29 @@ public class ClassReader implements Completer {
         verbosePath = false;
     }
     // where
+    // 完成对PackageSymbol对象中members_field的填充
         private void fillIn(PackageSymbol p,
                             Location location,
                             Iterable<JavaFileObject> files)
         {
+            // currentLoc是ClassReader类中声明的类型为Location的变量
             currentLoc = location;
+            // 循环所有的JavaFileObject对象进行处理，主要是对Java源文件及Class文件进行处理
             for (JavaFileObject fo : files) {
                 switch (fo.getKind()) {
                 case CLASS:
                 case SOURCE: {
                     // TODO pass binaryName to includeClassFile
+                    // 获取文件的二进制名称
+                    // 例如将compile/ImportedTest.class转换为compile.ImportedTest
                     String binaryName = fileManager.inferBinaryName(currentLoc, fo);
+                    // 获取文件的简短名称
+                    // ImportedTest
                     String simpleName = binaryName.substring(binaryName.lastIndexOf(".") + 1);
+                    // 简短名称合法时调用includeClassFile()方法进行处理
                     if (SourceVersion.isIdentifier(simpleName) ||
                         simpleName.equals("package-info"))
+                        // 对PackageSymbol对象中members_field的填充
                         includeClassFile(p, fo);
                     break;
                 }

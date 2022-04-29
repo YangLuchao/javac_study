@@ -25,23 +25,24 @@
 
 package com.sun.tools.javac.tree;
 
-import java.util.*;
+import com.sun.source.tree.*;
+import com.sun.tools.javac.code.*;
+import com.sun.tools.javac.code.Scope.ImportScope;
+import com.sun.tools.javac.code.Scope.StarImportScope;
+import com.sun.tools.javac.code.Symbol.ClassSymbol;
+import com.sun.tools.javac.code.Symbol.MethodSymbol;
+import com.sun.tools.javac.code.Symbol.PackageSymbol;
+import com.sun.tools.javac.code.Symbol.VarSymbol;
+import com.sun.tools.javac.util.*;
+import com.sun.tools.javac.util.JCDiagnostic.DiagnosticPosition;
 
-import java.io.IOException;
-import java.io.StringWriter;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.type.TypeKind;
 import javax.tools.JavaFileObject;
-
-import com.sun.tools.javac.util.*;
-import com.sun.tools.javac.util.JCDiagnostic.DiagnosticPosition;
-import com.sun.tools.javac.util.List;
-import com.sun.tools.javac.code.*;
-import com.sun.tools.javac.code.Scope.*;
-import com.sun.tools.javac.code.Symbol.*;
-import com.sun.source.tree.*;
-
-import static com.sun.tools.javac.code.BoundKind.*;
+import java.io.IOException;
+import java.io.StringWriter;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Root class for abstract syntax tree nodes. It provides definitions
@@ -428,13 +429,27 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      *                         ranges indexed by the tree nodes they belong to.
      *                         Defined only if option -Xjcov is set.
      */
+    // 每个编译单元（Compilation Unit）都是一个JCCompilationUnit对象。
+    // 一般，一个Java源文件对应一个编译单元，
+    // 如果一个Java源文件中定义了多个类，则这些类也属于同一个编译单元。
+    // JCCompilationUnit对象是抽象语法树顶层的树节点，或者说是根节点
+    // 一个编译单元由3部分构成：包声明、导入声明和类型声明
     public static class JCCompilationUnit extends JCTree implements CompilationUnitTree {
+        // 保存多个包注解
         public List<JCAnnotation> packageAnnotations;
+        // 保存包声明：表达式
         public JCExpression pid;
+        // 保存导入声明及类声明
+        // 保存在defs中的类型一定是顶层类或顶层接口
         public List<JCTree> defs;
         public JavaFileObject sourcefile;
+        // 定义包符号
         public PackageSymbol packge;
+        // 不同编译单元下的类在编译时可能会依赖同一个类型，
+        // 那么最终填充到不同编译单元的namedImportScope变量中的ClassSymbol对象也会是同一个
         public ImportScope namedImportScope;
+        // 导入声明导入的依赖对应的符号会填充starImportScope
+        // 同一个编译单元中定义的所有顶层类也会填充到这个变量中
         public StarImportScope starImportScope;
         public long flags;
         public Position.LineMap lineMap = null;
@@ -502,8 +517,18 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * An import clause.
      * @param qualid    The imported class(es).
      */
+    // 导入声明对象
+    /*
+    导入的四种导入形式
+    import chapter4.TestImportDecl;
+    import chapter4.TestImportDecl.*;
+    import static chapter4.TestImportDecl.StaticClass;
+    import static chapter4.TestImportDecl.*;
+     */
     public static class JCImport extends JCTree implements ImportTree {
+        // 是否为静态导入声明
         public boolean staticImport;
+        // 保存具体声明内容
         public JCTree qualid;
         protected JCImport(JCTree qualid, boolean importStatic) {
             this.qualid = qualid;
@@ -527,6 +552,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         }
     }
 
+    // 所有能表示语句的类都继承了JCStatement抽象类
     public static abstract class JCStatement extends JCTree implements StatementTree {
         @Override
         public JCStatement setType(Type type) {
@@ -540,6 +566,8 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         }
     }
 
+    // 一个复杂表达式可由基本表达式和运算符构成，
+    // 所有能表示表达式的类都会继承JCExpression抽象类
     public static abstract class JCExpression extends JCTree implements ExpressionTree {
         @Override
         public JCExpression setType(Type type) {
@@ -563,13 +591,20 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * @param defs all variables and methods defined in this class
      * @param sym the symbol
      */
+    // 每个类型声明（Class Declaration）或者说类型定义都是一个JCClassDecl对象，
+    // 包括接口、类，以及作为特殊接口的注解类和作为特殊类的枚举类
+    // 注解类是接口，枚举类是类
     public static class JCClassDecl extends JCStatement implements ClassTree {
+        // 区分类和接口，保存类和接口的修饰符
         public JCModifiers mods;
         public Name name;
+        // 保存类型上声明的多个类型参数(泛型)
         public List<JCTypeParameter> typarams;
         public JCExpression extending;
         public List<JCExpression> implementing;
+        // 保存类内部的一些成员，成员变量、方法等
         public List<JCTree> defs;
+        // 定义类符号
         public ClassSymbol sym;
         protected JCClassDecl(JCModifiers mods,
                            Name name,
@@ -635,6 +670,8 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * @param stats statements in the method
      * @param sym method symbol
      */
+    // 每个方法都是一个JCMethodDecl对象，包括抽象方法和非抽象方法
+    // 在类与枚举类、接口与注解类中定义的所有方法都用JCMethodDecl类来表示
     public static class JCMethodDecl extends JCTree implements MethodTree {
         public JCModifiers mods;
         public Name name;
@@ -643,7 +680,9 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public List<JCVariableDecl> params;
         public List<JCExpression> thrown;
         public JCBlock body;
+        // 注解类方法中指定的默认值
         public JCExpression defaultValue; // for annotation types
+        // 定义方法符号
         public MethodSymbol sym;
         protected JCMethodDecl(JCModifiers mods,
                             Name name,
@@ -704,11 +743,17 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * @param init variables initial value
      * @param sym symbol
      */
+    // 每个成员变量（Field）或局部变量（Variable）都是一个JCVariableDecl对象
+    // 对于形式参数来说，虽然与块内声明的局部变量稍有不同，但都是局部变量
     public static class JCVariableDecl extends JCStatement implements VariableTree {
+        // 变量的修饰符
         public JCModifiers mods;
         public Name name;
+        // 变量声明的类型
         public JCExpression vartype;
+        // 变量初始化值
         public JCExpression init;
+        // 定义变量的符号
         public VarSymbol sym;
         protected JCVariableDecl(JCModifiers mods,
                          Name name,
@@ -745,6 +790,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
       /**
      * A no-op statement ";".
      */
+      // JCSkip表示空语句（the empty statement），空语句中只是一个单独的分号
     public static class JCSkip extends JCStatement implements EmptyStatementTree {
         protected JCSkip() {
         }
@@ -768,8 +814,13 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * @param stats statements
      * @param flags flags
      */
+    // 除了类的body体外，每对花括号“{}”扩起来的块都是一个JCBlock对象
+    // 块内一般都是一系列语句，所以为了处理方便，
+    // 表示类声明的JCClassDecl类与表示变量声明的JCVariableDecl类也继承了JCStatement类，
+    // 这样就可以和其他语句一样按顺序保存到stats列表中了
     public static class JCBlock extends JCStatement implements BlockTree {
         public long flags;
+        // 有序的语句列表
         public List<JCStatement> stats;
         /** Position of closing brace, optional. */
         public int endpos = Position.NOPOS;
@@ -799,6 +850,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A do loop
      */
+    // do-while循环
     public static class JCDoWhileLoop extends JCStatement implements DoWhileLoopTree {
         public JCStatement body;
         public JCExpression cond;
@@ -826,6 +878,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A while loop
      */
+    // while循环
     public static class JCWhileLoop extends JCStatement implements WhileLoopTree {
         public JCExpression cond;
         public JCStatement body;
@@ -853,6 +906,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A for loop.
      */
+    // for循环
     public static class JCForLoop extends JCStatement implements ForLoopTree {
         public List<JCStatement> init;
         public JCExpression cond;
@@ -894,6 +948,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * The enhanced for loop.
      */
+    // foreach循环
     public static class JCEnhancedForLoop extends JCStatement implements EnhancedForLoopTree {
         public JCVariableDecl var;
         public JCExpression expr;
@@ -923,6 +978,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A labelled expression or statement.
      */
+    // 带label标记的语句(地址回填用)
     public static class JCLabeledStatement extends JCStatement implements LabeledStatementTree {
         public Name label;
         public JCStatement body;
@@ -948,6 +1004,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A "switch ( ) { }" construction.
      */
+    // switch
     public static class JCSwitch extends JCStatement implements SwitchTree {
         public JCExpression selector;
         public List<JCCase> cases;
@@ -974,7 +1031,9 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A "case  :" of a switch.
      */
+    // case
     public static class JCCase extends JCStatement implements CaseTree {
+        // 保存具体label的值
         public JCExpression pat;
         public List<JCStatement> stats;
         protected JCCase(JCExpression pat, List<JCStatement> stats) {
@@ -1000,6 +1059,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A synchronized block.
      */
+    // synchronized
     public static class JCSynchronized extends JCStatement implements SynchronizedTree {
         public JCExpression lock;
         public JCBlock body;
@@ -1026,6 +1086,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A "try { } catch ( ) { } finally { }" block.
      */
+    // try
     public static class JCTry extends JCStatement implements TryTree {
         public JCBlock body;
         public List<JCCatch> catchers;
@@ -1066,6 +1127,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A catch block.
      */
+    // catch
     public static class JCCatch extends JCTree implements CatchTree {
         public JCVariableDecl param;
         public JCBlock body;
@@ -1092,9 +1154,13 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A ( ) ? ( ) : ( ) conditional expression
      */
+    // 三元表达式
     public static class JCConditional extends JCExpression implements ConditionalExpressionTree {
+        // 保存条件判断表达式
         public JCExpression cond;
+        // 条件表达式为真时执行的表达式
         public JCExpression truepart;
+        // 条件表达式为假时执行的表达式
         public JCExpression falsepart;
         protected JCConditional(JCExpression cond,
                               JCExpression truepart,
@@ -1124,9 +1190,23 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * An "if ( ) { } else { }" block
      */
+    // if语句在词法分析的过程中要解决的一个问题就是悬空else（dangling else）
+    /*
+        if(res1)
+            if(res2){
+                ...
+            }
+        else{
+            ...
+            }
+            代码编写者的意图是，
+            第1个if语句的条件判断表达式为false时执行else部分，但是很明显这个else是属于第2个if语句的一部分
+     */
     public static class JCIf extends JCStatement implements IfTree {
         public JCExpression cond;
+        // if部分
         public JCStatement thenpart;
+        // else部分
         public JCStatement elsepart;
         protected JCIf(JCExpression cond,
                      JCStatement thenpart,
@@ -1157,7 +1237,11 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * an expression statement
      * @param expr expression structure
      */
+    // JCExpressionStatement类可以将表达式转换为语句，
+    // 因为类的body体或块内不允许直接包含表达式，
+    // 所以如果有表达式出现，需要通过JCExpressionStatement类封装为语句
     public static class JCExpressionStatement extends JCStatement implements ExpressionStatementTree {
+        // 被语句封装的表达式，类型为JCExpression
         public JCExpression expr;
         protected JCExpressionStatement(JCExpression expr)
         {
@@ -1181,8 +1265,10 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A break from a loop or switch.
      */
+    // break
     public static class JCBreak extends JCStatement implements BreakTree {
         public Name label;
+        // 指向另一个label的标记
         public JCTree target;
         protected JCBreak(Name label, JCTree target) {
             this.label = label;
@@ -1206,8 +1292,10 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A continue of a loop.
      */
+    // continue
     public static class JCContinue extends JCStatement implements ContinueTree {
         public Name label;
+        // 指向另一个label的标记
         public JCTree target;
         protected JCContinue(Name label, JCTree target) {
             this.label = label;
@@ -1231,6 +1319,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A return statement.
      */
+    // return
     public static class JCReturn extends JCStatement implements ReturnTree {
         public JCExpression expr;
         protected JCReturn(JCExpression expr) {
@@ -1254,6 +1343,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A throw statement.
      */
+    // throw
     public static class JCThrow extends JCStatement implements ThrowTree {
         public JCExpression expr;
         protected JCThrow(JCTree expr) {
@@ -1277,6 +1367,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * An assert statement.
      */
+    // assert
     public static class JCAssert extends JCStatement implements AssertTree {
         public JCExpression cond;
         public JCExpression detail;
@@ -1303,9 +1394,13 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A method invocation
      */
+    // 方法调用
     public static class JCMethodInvocation extends JCExpression implements MethodInvocationTree {
+        // 传递的实际类型参数列表
         public List<JCExpression> typeargs;
+        // 指定要调用的方法，JCIdent、JCFieldAccess对象
         public JCExpression meth;
+        // 方法调用的实参列表
         public List<JCExpression> args;
         public Type varargsElement;
         protected JCMethodInvocation(List<JCExpression> typeargs,
@@ -1346,12 +1441,32 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A new(...) operation.
      */
+    // ClassInstanceCreationExpression文法
+        /*
+        ClassInstanceCreationExpression:
+          new TypeArgumentsopt TypeDeclSpecifier TypeArgumentsOrDiamondopt
+                ( ArgumentListopt ) ClassBodyopt
+          Primary . new TypeArgumentsopt Identifier TypeArgumentsOrDiamondopt
+                 ( ArgumentListopt ) ClassBodyopt
+        TypeArgumentsOrDiamond:
+          TypeArguments
+          <>
+        ArgumentList:
+          Expression
+          ArgumentList , Expression
+         */
     public static class JCNewClass extends JCExpression implements NewClassTree {
+        // encl表示文法中的Primary，所以encl可能是Primary文法产生式中的任何一个表达式
         public JCExpression encl;
         public List<JCExpression> typeargs;
+        // clazz表示ClassInstanceCreationExpression文法中
+        // 第1个文法产生式中的TypeDeclSpecifier或第2个文法产生式中的Identifier，
+        // 所以具体的类型可能为JCFieldAccess或JCIdent；
         public JCExpression clazz;
         public List<JCExpression> args;
+        // def保存ClassBody部分，如果当前创建的是匿名类对象，那么def不为空
         public JCClassDecl def;
+        // 构造器的符号
         public Symbol constructor;
         public Type varargsElement;
         public Type constructorType;
@@ -1396,9 +1511,17 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A new[...] operation.
      */
+    // 新建数组
+        /*
+        int[][] a = new int[2][4];
+        int[] b = new int[] { 1, 2 };
+         */
     public static class JCNewArray extends JCExpression implements NewArrayTree {
+        // 保存数组元素的类型
         public JCExpression elemtype;
+        // 每个维度的大小
         public List<JCExpression> dims;
+        // 元素初始化部分
         public List<JCExpression> elems;
         protected JCNewArray(JCExpression elemtype,
                            List<JCExpression> dims,
@@ -1432,7 +1555,9 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A parenthesized subexpression ( ... )
      */
+    // 有括号的表达式使用JCParens类来表示
     public static class JCParens extends JCExpression implements ParenthesizedTree {
+        // expr保存括号内的表达式内容
         public JCExpression expr;
         protected JCParens(JCExpression expr) {
             this.expr = expr;
@@ -1455,8 +1580,11 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A assignment with "=".
      */
+    // 赋值运算符 =
     public static class JCAssign extends JCExpression implements AssignmentTree {
+        // 表示运算符"+"的左操作数，可以为表达式
         public JCExpression lhs;
+        // 表示运算符"+"的右操作数，可以为表达式
         public JCExpression rhs;
         protected JCAssign(JCExpression lhs, JCExpression rhs) {
             this.lhs = lhs;
@@ -1481,10 +1609,15 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * An assignment with "+=", "|=" ...
      */
+    // 复合赋值运算符
     public static class JCAssignOp extends JCExpression implements CompoundAssignmentTree {
+        // opcode的值表示不同的复合赋值运算符，这些值已经在JCTree类中预先进行了定义
         private int opcode;
+        // 复合赋值运算符的左操作数，可以为表达式
         public JCExpression lhs;
+        // 复合赋值运算符的右操作数，可以为表达式
         public JCExpression rhs;
+        // 操作符的符号
         public Symbol operator;
         protected JCAssignOp(int opcode, JCTree lhs, JCTree rhs, Symbol operator) {
             this.opcode = opcode;
@@ -1514,9 +1647,14 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A unary operation.
      */
+    // 一元表达式
     public static class JCUnary extends JCExpression implements UnaryTree {
+        // opcode的值表示不同的一元运算符
+        // @see com/sun/tools/javac/tree/JCTree.java POS
         private int opcode;
+        // 一元运算符的操作数，可以为基本类型和引用类型
         public JCExpression arg;
+        // 操作符的符号
         public Symbol operator;
         protected JCUnary(int opcode, JCExpression arg) {
             this.opcode = opcode;
@@ -1547,10 +1685,15 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A binary operation.
      */
+    // 二元运算符
     public static class JCBinary extends JCExpression implements BinaryTree {
+        // 表示二元运算符 com/sun/tools/javac/tree/JCTree.java DIV
         private int opcode;
+        // 二元表达式左边的表达式
         public JCExpression lhs;
+        // 二元表达式右边的表达式
         public JCExpression rhs;
+        // 操作符的符号
         public Symbol operator;
         protected JCBinary(int opcode,
                          JCExpression lhs,
@@ -1583,7 +1726,10 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A type cast.
      */
+    // 强制类型转换
     public static class JCTypeCast extends JCExpression implements TypeCastTree {
+        // 表示转换目标基本类型或引用类型
+        // 可能为：可能为表示基本类型的JCPrimitiveTypeTree，或表示引用类型的JCTypeApply、JCIdent或JCFieldAccess
         public JCTree clazz;
         public JCExpression expr;
         protected JCTypeCast(JCTree clazz, JCExpression expr) {
@@ -1609,8 +1755,12 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A type test.
      */
+    // instanceof 运算符
     public static class JCInstanceOf extends JCExpression implements InstanceOfTree {
+        // 表示instanceof运算符左侧的操作数，可以为表达式
         public JCExpression expr;
+        // 表示instanceof运算符右侧的操作数，一定为引用类型
+        // 具体的类型可能是JCIdent或JCFieldAccess
         public JCTree clazz;
         protected JCInstanceOf(JCExpression expr, JCTree clazz) {
             this.expr = expr;
@@ -1635,8 +1785,11 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * An array selection
      */
+    // 访问数组
     public static class JCArrayAccess extends JCExpression implements ArrayAccessTree {
+        // 数组对象
         public JCExpression indexed;
+        // 要访问元素的下标
         public JCExpression index;
         protected JCArrayAccess(JCExpression indexed, JCExpression index) {
             this.indexed = indexed;
@@ -1664,9 +1817,13 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * @param selector name of field to select thru
      * @param sym symbol of the selected class
      */
+    // 类型声明：java.lang.List
+    // FieldAccess文法产生式使用JCFieldAccess类来表
+    // JCFieldAccess类除了表示FieldAccess外，还可以表示Type.class、void.class和ClassName.this
     public static class JCFieldAccess extends JCExpression implements MemberSelectTree {
         public JCExpression selected;
         public Name name;
+        // 变量的符号
         public Symbol sym;
         protected JCFieldAccess(JCExpression selected, Name name, Symbol sym) {
             this.selected = selected;
@@ -1694,8 +1851,11 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * @param idname the name
      * @param sym the symbol
      */
+    // this关键字使用JCIdent类来表示
     public static class JCIdent extends JCExpression implements IdentifierTree {
+        // name的值就是this
         public Name name;
+        // 变量的符号
         public Symbol sym;
         protected JCIdent(Name name, Symbol sym) {
             this.name = name;
@@ -1719,9 +1879,27 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * A constant value given literally.
      * @param value value representation
      */
+    // 字面量都是一个JCLiteral对象
     public static class JCLiteral extends JCExpression implements LiteralTree {
+        // 字面量类型
+        // @see com/sun/tools/javac/code/TypeTags.java
         public int typetag;
+        // 具体的字面量
         public Object value;
+        /*
+        int a = 1;
+        long b = 2L;
+        float c = 3f;
+        double d =4d;
+        Object e = null;
+        String f = "aa";
+        整数1的typetag值为TypeTags.INT；
+        2L的typetag值为TypeTags.Long；
+        3f的typetag值为TypeTags.FLOAT；
+        4d的typetag值为TypeTags.DOUBLE；
+        null的typetag值为TypeTags.BOT；
+        "aa"的typetag值为TypeTags.CLASS
+         */
         protected JCLiteral(int typetag, Object value) {
             this.typetag = typetag;
             this.value = value;
@@ -1786,7 +1964,9 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * @param tag the basic type id
      * @see TypeTags
      */
+    // 基本类型
     public static class JCPrimitiveTypeTree extends JCExpression implements PrimitiveTypeTree {
+        // 具体的类型
         public int typetag;
         protected JCPrimitiveTypeTree(int typetag) {
             this.typetag = typetag;
@@ -1832,7 +2012,10 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * An array type, A[]
      */
+    // 数组类型的参数化类型
     public static class JCArrayTypeTree extends JCExpression implements ArrayTypeTree {
+        // elemtype保存组成数组的元素类型
+        // 如果当前是一个二维或多维数组，则elemtype也是一个JCArrayTypeTree对象
         public JCExpression elemtype;
         protected JCArrayTypeTree(JCExpression elemtype) {
             this.elemtype = elemtype;
@@ -1855,8 +2038,22 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A parameterized type, T<...>
      */
+    // 举个例子
+
+    /*
+     来源：com.sun.tools.javac.util.List
+      public class List<A> extends AbstractCollection<A> implements java.util.List<A> {
+      public List<A> tail;
+        ...
+      }
+      父类AbstractCollection<A>与实现接口java.util.List<A>都是参数化类型，通过JCTypeApply对象来表示
+      而当前定义的类List<A>并不是参数化类型，通过JCClassDecl对象来表示
+      */
+    // 参数化类型：java.lang.List<String>
     public static class JCTypeApply extends JCExpression implements ParameterizedTypeTree {
+        // clazz的具体类型可能为JCIdent或JCFieldAccess
         public JCExpression clazz;
+        // 多个实际类型参数列表
         public List<JCExpression> arguments;
         protected JCTypeApply(JCExpression clazz, List<JCExpression> arguments) {
             this.clazz = clazz;
@@ -1883,8 +2080,12 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A union type, T1 | T2 | ... Tn (used in multicatch statements)
      */
+    /*
+    cache(AException | BException | CException e)
+     */
+    //异常参数
     public static class JCTypeUnion extends JCExpression implements UnionTypeTree {
-
+        // 异常参数列表
         public List<JCExpression> alternatives;
 
         protected JCTypeUnion(List<JCExpression> components) {
@@ -1913,8 +2114,13 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * @param name name
      * @param bounds bounds
      */
+    // 类型参数对象，泛型
+    // 每个形式类型参数都是一个JCTypeParameter对象
+    // 可以表示类型（接口或类）或者方法声明的类型参数
     public static class JCTypeParameter extends JCTree implements TypeParameterTree {
+        // 保存类型参数中类型变量的名称
         public Name name;
+        // bounds保存类型变量的上界，可以有多个(泛型)
         public List<JCExpression> bounds;
         protected JCTypeParameter(Name name, List<JCExpression> bounds) {
             this.name = name;
@@ -1938,8 +2144,11 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         }
     }
 
+    // 通配符类型
     public static class JCWildcard extends JCExpression implements WildcardTree {
+        // 保存通配符的类型
         public TypeBoundKind kind;
+        // 通配符类型上界或下界
         public JCTree inner;
         protected JCWildcard(TypeBoundKind kind, JCTree inner) {
             kind.getClass(); // null-check
@@ -1972,7 +2181,9 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         }
     }
 
+    // 通配符的类型
     public static class TypeBoundKind extends JCTree {
+        // 通配符的类型
         public BoundKind kind;
         protected TypeBoundKind(BoundKind kind) {
             this.kind = kind;
@@ -1993,8 +2204,11 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         }
     }
 
+    // 注解表达式
     public static class JCAnnotation extends JCExpression implements AnnotationTree {
+        // 保存的注解类型
         public JCTree annotationType;
+        // 保存多个注解参数
         public List<JCExpression> args;
         protected JCAnnotation(JCTree annotationType, List<JCExpression> args) {
             this.annotationType = annotationType;
@@ -2018,8 +2232,12 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         }
     }
 
+    // 表示修饰符，如public、abstract和native等，甚至还能表示注解
     public static class JCModifiers extends JCTree implements com.sun.source.tree.ModifiersTree {
+        // 保存修饰符
+        // @see src/com/sun/tools/javac/code/Flags.java
         public long flags;
+        // 保存注解信息
         public List<JCAnnotation> annotations;
         protected JCModifiers(long flags, List<JCAnnotation> annotations) {
             this.flags = flags;
@@ -2184,6 +2402,8 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
 
     /** A generic visitor class for trees.
      */
+    // 访问者模式
+    // 访问者
     public static abstract class Visitor {
         public void visitTopLevel(JCCompilationUnit that)    { visitTree(that); }
         public void visitImport(JCImport that)               { visitTree(that); }

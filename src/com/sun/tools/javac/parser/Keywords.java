@@ -39,6 +39,7 @@ import static com.sun.tools.javac.parser.Token.IDENTIFIER;
  * This code and its internal interfaces are subject to change or
  * deletion without notice.</b>
  */
+// 将Name对象映射为Token对象
 public class Keywords {
     public static final Context.Key<Keywords> keywordsKey =
             new Context.Key<Keywords>();
@@ -46,13 +47,27 @@ public class Keywords {
     /**
      * Keyword array. Maps name indices to Token.
      */
+    // 建立NameImpl对象到Token对象的映射关系
     private final Token[] key;
     /**
      * The number of the last entered keyword.
      */
+    // 所有Name对象中的index的最大值
     private int maxKey = 0;
     /**
      * The names of all tokens.
+     */
+    // tokenName数组保存了Token对象到Name对象的映射，
+    // 准确说是tokenName数组的下标为各个Token对象在Token枚举类中定义的序数（序数从0开始），而对应下标处的值为对应的Name对象
+    /*
+    最终tokenName数组的值:
+    Name[0]=null // EOF
+    Name[1]=null // ERROR
+    Name[2]=null // IDENTIFIER
+    Name[3]=NameImpl("abstract")// ABSTRACT，对应着表示“abstract” 的NameImpl对象
+    ...
+    Name[109]=NameImpl("@") // MONKEYS_AT，对应着表示“@”的NameImpl对象
+    Name[110]=null // CUSTOM
      */
     private Name[] tokenName = new Name[Token.values().length];
 
@@ -60,10 +75,14 @@ public class Keywords {
         context.put(keywordsKey, this);
         names = Names.instance(context);
 
+        // 循环所有的Token对象
         for (Token t : Token.values()) {
+            // name值不为空
             if (t.name != null) {
+                // 建立Token对象到Name对象的映射
                 enterKeyword(t.name, t);
             } else {
+                // 如果name值为空，将tokenName数组中调用t.ordinal()方法获取的下标处的值设置为null
                 tokenName[t.ordinal()] = null;
             }
         }
@@ -74,6 +93,7 @@ public class Keywords {
         }
         for (Token t : Token.values()) {
             if (t.name != null) {
+                // .getIndex()这个值作为key数组的下标，值是Token对象
                 key[tokenName[t.ordinal()].getIndex()] = t;
             }
         }
@@ -87,6 +107,7 @@ public class Keywords {
         return instance;
     }
 
+    // 通过Name对象回去Token对象
     public Token key(Name name) {
         return (name.getIndex() > maxKey) ? IDENTIFIER : key[name.getIndex()];
     }

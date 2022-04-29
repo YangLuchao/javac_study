@@ -113,12 +113,16 @@ public class Types {
      * @param t a type
      * @return the upper bound of the given type
      */
+    // 当类型为WildcardType时，调用U()与L()方法分别求上界与下界，当不能确定具体的类型时，
+    // 可以调用upperBound()方法与lowerBound()方法求上界与下界
     public Type upperBound(Type t) {
         return upperBound.visit(t);
     }
     // where
+        // 只有当t为WildcardType或CapturedType对象时，才可能存在上界
         private final MapVisitor<Void> upperBound = new MapVisitor<Void>() {
-
+            // 当t为下界或无界通配符时，上界可能为Object或形式类型参数中声明的上界，
+            // 否则t为上界通配符，调用visit()方法求t.type的上界
             @Override
             public Type visitWildcardType(WildcardType t, Void ignored) {
                 if (t.isSuperBound())
@@ -143,12 +147,15 @@ public class Types {
      * @param t a type
      * @return the lower bound of the given type
      */
+    // 当类型为WildcardType时，调用U()与L()方法分别求上界与下界，当不能确定具体的类型时，
+    // 可以调用upperBound()方法与lowerBound()方法求上界与下界
     public Type lowerBound(Type t) {
         return lowerBound.visit(t);
     }
     // where
+        // 只有当t为WildcardType或CapturedType对象时，才可能存在下界
         private final MapVisitor<Void> lowerBound = new MapVisitor<Void>() {
-
+            // 当t为上界或无界通配符时，下界为null，否则t为下界通配符，调用visit()方法求t.type的下界
             @Override
             public Type visitWildcardType(WildcardType t, Void ignored) {
                 return t.isExtendsBound() ? syms.botType : visit(t.type);
@@ -272,14 +279,26 @@ public class Types {
      * Is t a subtype of or convertiable via boxing/unboxing
      * convertions to s?
      */
+    // 拆裝箱后并进行转换
+    // 对类型装箱转换与类型拆箱转换进行了支持
     public boolean isConvertible(Type t, Type s, Warner warn) {
         boolean tPrimitive = t.isPrimitive();
         boolean sPrimitive = s.isPrimitive();
+        // t与s同时为基本类型或引用类型
         if (tPrimitive == sPrimitive) {
             checkUnsafeVarargsConversion(t, s, warn);
+            // 当t与s同时为基本类型或引用类型时，需要调用isSubtypeUncheck()方法进行判断
+            // 判断类型相同，就可以转换
             return isSubtypeUnchecked(t, s, warn);
         }
-        if (!allowBoxing) return false;
+        // 当代码执行到这里时，t与s一个为基本类型，一个为引用类型
+        // 当allowBoxing为true时，则表示允许使用类型拆箱转换与类型装箱转换
+        if (!allowBoxing)
+            return false;
+        // 说明t与s中一个为基本类型，另外一个为引用类型，需要进行类型拆箱转换与类型装箱转换。
+        // 如果t为基本类型就对t进行类型装箱转换，然后调用isSubtype()方法继续判断；
+        // 如果t为引用类型，就对t进行类型拆箱转换，然后调用isSubtype()方法继续判断
+        // 类型不同，则拆箱或装箱后可以转换
         return tPrimitive
             ? isSubtype(boxedClass(t).type, s)
             : isSubtype(unboxedType(t), s);
@@ -325,7 +344,19 @@ public class Types {
     /**
      * Is t an unchecked subtype of s?
      */
+    /*
+    isSubtype()方法与isSubtypeUncheck()方法的主要区别就是，
+    isSubtypeUnchecked()方法还支持了非检查转换。
+        class Parent<T>{ }
+        class Sub<T> extends Parent<String>{
+            Parent<String> p = new Sub();// 警告，未经检查的转换
+        }
+     */
+    // 判断t是否能转换为s，对非检查转换进行了支持
+    // 调用isSubtypeUnchecked()方法的前提是t与s同时为引用类型或同时为基本类型
     public boolean isSubtypeUnchecked(Type t, Type s, Warner warn) {
+        // 当t与s为数组类型并且组成数组的元素类型为基本类型时，则这两个基本类型必须相同，
+        // 否则递归调用isSubtypeUnchecked()方法将继续对组成数组元素的类型进行判断。
         if (t.tag == ARRAY && s.tag == ARRAY) {
             if (((ArrayType)t).elemtype.tag <= lastBaseTag) {
                 return isSameType(elemtype(t), elemtype(s));
@@ -340,19 +371,26 @@ public class Types {
                 return isSubtypeUnchecked(elemtype(t), elemtype(s), warn);
             }
         } else if (isSubtype(t, s)) {
+            // 当t与s不同时为数组类型时，则调用isSubtype()方法进行判断
             return true;
         }
         else if (t.tag == TYPEVAR) {
+            // 当t为类型变量时，则调用isSubtypeUnchecked()方法判断t的上界类型与s的关系
             return isSubtypeUnchecked(t.getUpperBound(), s, warn);
         }
         else if (s.tag == UNDETVAR) {
             UndetVar uv = (UndetVar)s;
             if (uv.inst != null)
+                // 当s为需要推断的类型并且已经推断出具体的类型un.inst时，
+                // 则调用isSubtypeUnchecked()方法判断t与uv.inst的关系
                 return isSubtypeUnchecked(t, uv.inst, warn);
         }
         else if (!s.isRaw()) {
+            // 当s不是裸类型时可能会发生非检查转换，
+            // 首先调用asSuper()方法查找t的父类，这个父类的tsym等于s.tsym
             Type t2 = asSuper(t, s.tsym);
             if (t2 != null && t2.isRaw()) {
+                // 当s为运行时类型时，不会给出警告
                 if (isReifiable(s))
                     warn.silentWarn(LintCategory.UNCHECKED);
                 else
@@ -367,13 +405,32 @@ public class Types {
      * Is t a subtype of s?<br>
      * (not defined for Method and ForAll types)
      */
+    // 在泛型推断或对实际类型参数进行边界检查时也会调用isSubtype()方法
     final public boolean isSubtype(Type t, Type s) {
         return isSubtype(t, s, true);
     }
     final public boolean isSubtypeNoCapture(Type t, Type s) {
         return isSubtype(t, s, false);
     }
+
+
+    // isAssignable()方法对常量进行了支持；
+    // isConvertible()方法对类型装箱转换与类型拆箱转换进行了支持；
+    // isSubtypeUnchecked()方法主要对非检查转换进行了支持，
+    // 那么在isSubtypeUnchecked()方法中
+    // 调用的isSubtype()方法就需要重点支持还没有支持的具体类型转换:
+    // 1:同一性转换；
+    // 2:基本类型宽化转换；
+    // 3:引用类型宽化转换。
     public boolean isSubtype(Type t, Type s, boolean capture) {
+        /* 传递的参数capture的值为true，表示需要对t进行类型捕获
+            List<? extends Object> a = new ArrayList<String>();
+            Object b = a;
+            将类型为List<? extends Object>的变量a的值赋值给变量b时，
+            则对List<? extends Object>类型中含有的通配符类型进行类型捕获，
+            这样才能参与具体的类型转换
+         */
+        // 当t与s相同时则直接返回true，这也是对同一性转换的支持
         if (t == s)
             return true;
 
@@ -391,27 +448,40 @@ public class Types {
         Type lower = lowerBound(s);
         if (s != lower)
             return isSubtype(capture ? capture(t) : t, lower, false);
-
+        // 判断转换
         return isSubtype.visit(capture ? capture(t) : t, s);
     }
     // where
+    // 判断是否可以赋值转换
         private TypeRelation isSubtype = new TypeRelation()
         {
+
             public Boolean visitType(Type t, Type s) {
                 switch (t.tag) {
+                    // 当t为byte或char类型时，t是s的子类有以下两种情况
                 case BYTE: case CHAR:
+                    // 1:t与s是相同的类型，也就是tag的值相同
+                    // 2：s是基本类型，t的tag值加2后小于等于s的tag值。
+                        // tag的取值在TypeTags类中预先进行了定义，
+                        // 其中，BYTE的值为1、CHAR为2、SHORT为3、INT为4。
+                        // 因为byte不能直接转换为char，所以t的tag值加2排除了byte转换为char这种情况。
                     return (t.tag == s.tag ||
                               t.tag + 2 <= s.tag && s.tag <= DOUBLE);
                 case SHORT: case INT: case LONG: case FLOAT: case DOUBLE:
+                    // 当t为除byte、char与boolean外的基本类型时，要求s不能为基本类型并且t的tag值要小于等于s的tag值
                     return t.tag <= s.tag && s.tag <= DOUBLE;
                 case BOOLEAN: case VOID:
+                    // 当t为boolean或void类型时两个类型要相等
                     return t.tag == s.tag;
                 case TYPEVAR:
+                    // 当t为类型变量时，则调用isSubtypeNoCapture()方法来判断t的上界类型是否为s的子类
                     return isSubtypeNoCapture(t.getUpperBound(), s);
+                    // 当t为null时，s为null或引用类型都可以
                 case BOT:
                     return
                         s.tag == BOT || s.tag == CLASS ||
                         s.tag == ARRAY || s.tag == TYPEVAR;
+                    // 其他情况下t不会为s的子类
                 case WILDCARD: //we shouldn't be here - avoids crash (see 7034495)
                 case NONE:
                     return false;
@@ -422,16 +492,19 @@ public class Types {
 
             private Set<TypePair> cache = new HashSet<TypePair>();
 
+            // 例：9-16
             private boolean containsTypeRecursive(Type t, Type s) {
                 TypePair pair = new TypePair(t, s);
                 if (cache.add(pair)) {
                     try {
+                        // 调用containsType()方法判断t的类型参数是否包含s的类型参数
                         return containsType(t.getTypeArguments(),
                                             s.getTypeArguments());
                     } finally {
                         cache.remove(pair);
                     }
                 } else {
+                    // 调用containsType()方法判断t的类型参数是否包含s的类型参数
                     return containsType(t.getTypeArguments(),
                                         rewriteSupers(s).getTypeArguments());
                 }
@@ -470,29 +543,34 @@ public class Types {
 
             @Override
             public Boolean visitClassType(ClassType t, Type s) {
+                // 查找t的父类
                 Type sup = asSuper(t, s.tsym);
+                // 父类不为空
                 return sup != null
+                    // 判断父类的类型和s的关系
                     && sup.tsym == s.tsym
-                    // You're not allowed to write
-                    //     Vector<Object> vec = new Vector<String>();
-                    // But with wildcards you can write
-                    //     Vector<? extends Object> vec = new Vector<String>();
-                    // which means that subtype checking must be done
-                    // here instead of same-type checking (via containsType).
+                    // 判断参数化类型 和 封闭类型
+                    // 在进行类型参数判断时，如果s不是参数化类型，则类型转换肯定能成功；
+                    // 如果s为参数化类型时则需要调用containsTypeRecursive()方法进行判断
                     && (!s.isParameterized() || containsTypeRecursive(s, sup))
+                    // 进行封闭类型的判断时，需要调用isSubtypeNoCapture()方法来判断sup的封闭类型是否为s的封闭类型的子类即可
                     && isSubtypeNoCapture(sup.getEnclosingType(),
                                           s.getEnclosingType());
             }
 
             @Override
             public Boolean visitArrayType(ArrayType t, Type s) {
+                // 当s也为数组类型时，
+                // 当前方法的判断逻辑与isSubtypeUnchecked()方法中针对数组类型的判断逻辑相同
                 if (s.tag == ARRAY) {
                     if (t.elemtype.tag <= lastBaseTag)
                         return isSameType(t.elemtype, elemtype(s));
                     else
                         return isSubtypeNoCapture(t.elemtype, elemtype(s));
                 }
-
+                // 当s不为数组类型时，只有为Object、Cloneable或Serializable类型时，
+                // visitArrayType()方法才会返回true，
+                // 因为数组的超类型除数组外就只有Object、Cloneable与Serializable
                 if (s.tag == CLASS) {
                     Name sname = s.tsym.getQualifiedName();
                     return sname == names.java_lang_Object
@@ -749,7 +827,6 @@ public class Types {
         };
     // </editor-fold>
 
-    // <editor-fold defaultstate="collapsed" desc="fromUnknownFun">
     /**
      * A mapping that turns all unknown types in this type to fresh
      * unknown variables.
@@ -762,49 +839,60 @@ public class Types {
         };
     // </editor-fold>
 
-    // <editor-fold defaultstate="collapsed" desc="Contains Type">
+    // 判断s是否包含t
     public boolean containedBy(Type t, Type s) {
         switch (t.tag) {
+            // 当t为待推断对象
         case UNDETVAR:
+            // 当s为通配符对象
             if (s.tag == WILDCARD) {
+                // 为了让t被s所包含，可能会向UndetVar对象的hibounds或lobounds中添加边界限定条件
                 UndetVar undetvar = (UndetVar)t;
                 WildcardType wt = (WildcardType)s;
                 switch(wt.kind) {
-                    case UNBOUND: //similar to ? extends Object
+                    case UNBOUND:
                     case EXTENDS: {
+                        // 当wt为无界或上界通配符时，获取上界bound，
                         Type bound = upperBound(s);
-                        // We should check the new upper bound against any of the
-                        // undetvar's lower bounds.
+                        // 然后检查undetvar中所有的下界是否为上界bound的子类
                         for (Type t2 : undetvar.lobounds) {
                             if (!isSubtype(t2, bound))
+                                // 如果存在某个下界不是上界bound的子类，那么不存在包含的关系，直接返回false，
                                 return false;
                         }
+                        // 否则将s的上界作为undetvar的上界添加到hibounds列表中；
                         undetvar.hibounds = undetvar.hibounds.prepend(bound);
                         break;
                     }
                     case SUPER: {
+                        // 当wt为下界通配符时获取下界bound，
                         Type bound = lowerBound(s);
-                        // We should check the new lower bound against any of the
-                        // undetvar's lower bounds.
+                        // 然后检查这个下界bound是否为undetvar所有上界的子类
                         for (Type t2 : undetvar.hibounds) {
                             if (!isSubtype(bound, t2))
+                                // 如果存在某个下界不是上界bound的子类，那么不存在包含的关系，直接返回false，
                                 return false;
                         }
+                        // 否则将s的下界添加到UndetVar对象的lobounds中
                         undetvar.lobounds = undetvar.lobounds.prepend(bound);
                         break;
                     }
                 }
                 return true;
             } else {
+                // s为非通配符对象，调用isSameType()方法来判断，
+                // 表示两个类型必须相等才能有包含的关系
                 return isSameType(t, s);
             }
         case ERROR:
             return true;
         default:
+            // 当t不为UndetVar对象时调用containsType()方法继续判断
             return containsType(s, t);
         }
     }
 
+    // 判断一个类型是否包含另外一个类型
     boolean containsType(List<Type> ts, List<Type> ss) {
         while (ts.nonEmpty() && ss.nonEmpty()
                && containsType(ts.head, ss.head)) {
@@ -839,73 +927,89 @@ public class Types {
      * @param t a type
      * @param s a type
      */
+    // 判断一个类型是否包含另外一个类型
+    // 判断t是否包含s
     public boolean containsType(Type t, Type s) {
         return containsType.visit(t, s);
     }
     // where
         private TypeRelation containsType = new TypeRelation() {
 
+            // 类型为WildcardType时，可以调用U()方法求下界
             private Type U(Type t) {
                 while (t.tag == WILDCARD) {
                     WildcardType w = (WildcardType)t;
+                    // 当t为无界通配符类型或下界通配符类型时，调用isSuperBound()方法返回true，
                     if (w.isSuperBound())
+                        // 这个通配符类型的上界如果没有指定，则默认为Object，
+                        // 否则通过w.bound.bound获取形式类型参数声明时的上界
                         return w.bound == null ? syms.objectType : w.bound.bound;
                     else
+                        // 当w为上界通配符时直接获取上界通配符的上界w.type
                         t = w.type;
                 }
                 return t;
             }
 
+            // 类型为WildcardType时，可以调用L()方法求上界
             private Type L(Type t) {
                 while (t.tag == WILDCARD) {
                     WildcardType w = (WildcardType)t;
+                    // 当t为无界通配符类型或上界通配符类型时，调用isExtendsBound()方法返回true
                     if (w.isExtendsBound())
+                        // 这个通配符类型的下界为null
                         return syms.botType;
                     else
+                        // 否则取上界通配符声明的上界w.type
                         t = w.type;
                 }
                 return t;
             }
-
+            // 当t为非WildcardType(不是通配符类型)或UndetVar(是待推断类型)类型时会调用visitType()方法进行判断
+            @Override
             public Boolean visitType(Type t, Type s) {
+                // 当s为UndetVar(待推断对象)对象时，判断t是否包含s
                 if (s.tag >= firstPartialTag)
+                    // 判断t是否包含s
                     return containedBy(s, t);
                 else
                     return isSameType(t, s);
             }
 
-//            void debugContainsType(WildcardType t, Type s) {
-//                System.err.println();
-//                System.err.format(" does %s contain %s?%n", t, s);
-//                System.err.format(" %s U(%s) <: U(%s) %s = %s%n",
-//                                  upperBound(s), s, t, U(t),
-//                                  t.isSuperBound()
-//                                  || isSubtypeNoCapture(upperBound(s), U(t)));
-//                System.err.format(" %s L(%s) <: L(%s) %s = %s%n",
-//                                  L(t), t, s, lowerBound(s),
-//                                  t.isExtendsBound()
-//                                  || isSubtypeNoCapture(L(t), lowerBound(s)));
-//                System.err.println();
-//            }
-
             @Override
+            // 判断t是否包含s
             public Boolean visitWildcardType(WildcardType t, Type s) {
+                // 当t为WildcardType对象且s为UndetVar对象时，
+                // 调用containedBy()方法进行判断，否则有3种情况会让t包含s
                 if (s.tag >= firstPartialTag)
                     return containedBy(s, t);
                 else {
-//                    debugContainsType(t, s);
+                    // 1:t与s都是通配符类型并且相同
                     return isSameWildcard(t, s)
+                        // isCaptureOf()方法返回true
                         || isCaptureOf(s, t)
-                        || ((t.isExtendsBound() || isSubtypeNoCapture(L(t), lowerBound(s))) &&
+                        || (
+                            // 当t有上界时，s的上界必须是t的上界的子类型；
+                            (t.isExtendsBound() || isSubtypeNoCapture(L(t), lowerBound(s)))
+                                        &&
+                             // 当t有下界时，t的下界必须是s的下界的子类型
                             (t.isSuperBound() || isSubtypeNoCapture(upperBound(s), U(t))));
                 }
+                // t是WildcardType类型，所以可以调用L()与U()方法求下界与上界
+                // s不能确定具体的类型，所以调用lowerBound()与upperBound()方法求下界与上界
+                // 例c-11/c-12
             }
 
             @Override
+            // 判断t是否包含s
             public Boolean visitUndetVar(UndetVar t, Type s) {
+                // 当t为UndetVar(是待推断对象)对象且s不为WildcardType(非通配符对象)对象时，
+                // 调用isSameType()方法进行判断
                 if (s.tag != WILDCARD)
                     return isSameType(t, s);
                 else
+                    // 当t为UndetVar对象且s为WildcardType对象时，由于UndetVar对象代表一个具体的类型，
+                    // 而WildcardType对象不代表一个具体的类型，所以t肯定不包含s，方法直接返回false
                     return false;
             }
 
@@ -915,12 +1019,16 @@ public class Types {
             }
         };
 
+    // 在调用isCaptureOf()方法之前已经调用过isSameWildcard()方法，所以当s为WildcardType时两个类型不相等
+    // 当前方法仅对s为CapturedType对象进行判断，
+    // 也就是调用isSameWildcard()方法比较t与CapturedType对象s的wildcard
     public boolean isCaptureOf(Type s, WildcardType t) {
         if (s.tag != TYPEVAR || !((TypeVar)s).isCaptured())
             return false;
         return isSameWildcard(t, ((CapturedType)s).wildcard);
     }
 
+    // 当t与s都为通配符类型并且kind与type的值相同时，isSameWildcard()方法将返回true
     public boolean isSameWildcard(WildcardType t, Type s) {
         if (s.tag != WILDCARD)
             return false;
@@ -948,11 +1056,15 @@ public class Types {
      * s is assumed to be an erased type.<br>
      * (not defined for Method and ForAll types).
      */
+    // 当需要进行强制类型转换时，那么可以调用Types类中的isCastable()方法进行判断
     public boolean isCastable(Type t, Type s, Warner warn) {
+        // 当t与s相同时则直接返回，这也是对同一性转换的支持
         if (t == s)
             return true;
 
         if (t.isPrimitive() != s.isPrimitive())
+            // t与s一个为基本类型，一个为引用类型
+            // 会发生类型装箱转换与类型拆箱转换后进行判断
             return allowBoxing && (
                     isConvertible(t, s, warn)
                     || (allowObjectToPrimitiveCast &&
@@ -967,10 +1079,12 @@ public class Types {
                 warnStack = warnStack.tail;
             }
         } else {
+            // t与s同时为基本类型或引用类型
             return isCastable.visit(t,s);
         }
     }
     // where
+        // 判断强制类型转换，返回值都是Boolean类型，表示是否能够进行强制转换
         private TypeRelation isCastable = new TypeRelation() {
 
             public Boolean visitType(Type t, Type s) {
@@ -980,12 +1094,16 @@ public class Types {
                 switch (t.tag) {
                 case BYTE: case CHAR: case SHORT: case INT: case LONG: case FLOAT:
                 case DOUBLE:
+                    // 当t为除了boolean类型之外的基本类型时，s也必须是除了boolean类型之外的基本类型
                     return s.tag <= DOUBLE;
                 case BOOLEAN:
+                    // 当t为boolean类型时，s也必须为boolean类型；
                     return s.tag == BOOLEAN;
                 case VOID:
+                    // 当t为void类型时返回false，表示void类型不能强制转换为任何类型；
                     return false;
                 case BOT:
+                    // 当t为null时，调用isSubtype()方法进行判断，此时只要求s为引用类型即可。
                     return isSubtype(t, s);
                 default:
                     throw new AssertionError();
@@ -998,11 +1116,15 @@ public class Types {
             }
 
             @Override
+            // 参数t为原类型，而s为目标转换类型。假设t的类型为T，而s的类型为S，
+            // 当T为类或者接口时都会调用这个方法
             public Boolean visitClassType(ClassType t, Type s) {
                 if (s.tag == ERROR || s.tag == BOT)
                     return true;
-
+                // 当s为类型变量时，判断t是否能够强制转换为s的上界
                 if (s.tag == TYPEVAR) {
+                    // 如果S是一个类型变量，将S替换为类型变量上界，如果上界仍然是类型变量，
+                    // 则继续查找这个类型变量上界，直到找到一个非类型变量的类型为止
                     if (isCastable(t, s.getUpperBound(), Warner.noWarnings)) {
                         warnStack.head.warn(LintCategory.UNCHECKED);
                         return true;
@@ -1010,7 +1132,8 @@ public class Types {
                         return false;
                     }
                 }
-
+                // 当t或s为组合类型时，组合类型的父类和接口必须能够强制转换为另外一个类型
+                // 当T为组合类型时，必须要求T的父类及实现的接口都能转换为目标类型S，否则不能进行强制类型转换
                 if (t.isCompound()) {
                     Warner oldWarner = warnStack.head;
                     warnStack.head = Warner.noWarnings;
@@ -1025,16 +1148,23 @@ public class Types {
                     return true;
                 }
 
+                // 当S为组合类型时是相同的情况，
+                // visitClassType()方法会调换t与s参数的位置，然后继续调用isCompound()方法进行判断
                 if (s.isCompound()) {
                     // call recursively to reuse the above code
                     return visitClassType((ClassType)s, t);
                 }
-
+                // t为接口或类，s为接口、类或数组
+                // 当T为接口时
+                //（1）如果S是一个非final修饰的类型，那么要将接口T转换为非final修饰的类型。这与将一个非final的类转换为接口是相同的情况，也就是不允许T和S有不同的参数化父类型，这个父类型在擦写后是同一个类型。除此之外，其他转换都是被允许的。
+                //（2）如果S是一个final修饰类型，因为接口不能由final修饰，所以S只能是个类。由于S是由final修饰的类，因而S必须直接或间接实现T接口，否则两个类型不能进行强制类型转换，因为S已经没有子类可以继承S类实现T接口了。
+                //（3）当S是数组类型时，那么T一定是Serializable或Cloneable接口，否则两个类型不能进行强制类型转换。
                 if (s.tag == CLASS || s.tag == ARRAY) {
                     boolean upcast;
                     if ((upcast = isSubtype(erasure(t), erasure(s)))
                         || isSubtype(erasure(s), erasure(t))) {
                         if (!upcast && s.tag == ARRAY) {
+                            // 如果S是一个数组类型，那么T一定是Object类
                             if (!isReifiable(s))
                                 warnStack.head.warn(LintCategory.UNCHECKED);
                             return true;
@@ -1086,11 +1216,14 @@ public class Types {
                             return isSubtypeUnchecked(a, b, warnStack.head);
                     }
 
-                    // Sidecast
+                    // 当代码执行到这里时，t与s的泛型擦除后的类型不会有父子关系
                     if (s.tag == CLASS) {
                         if ((s.tsym.flags() & INTERFACE) != 0) {
                             return ((t.tsym.flags() & FINAL) == 0)
+                                    // 调用sideCast()方法表示t与s一定是非final修饰的类型，因此不能转换的情况只有同时实现了不同的参数化父类型，这个父类型在擦写后是同一个类型
                                 ? sideCast(t, s, warnStack.head)
+                                    // 调用sideCastFinal()方法表示t是final修饰的类型而s是接口，或者t是接口而s是final修饰的类型
+                                    // 例9-22
                                 : sideCastFinal(t, s, warnStack.head);
                         } else if ((t.tsym.flags() & INTERFACE) != 0) {
                             return ((s.tsym.flags() & FINAL) == 0)
@@ -1106,12 +1239,17 @@ public class Types {
             }
 
             @Override
+            // 假设参数t的类型为T，而s的类型为S时，
+            // 调用visitArrayType()方法处理当T为数组类型时的情况时，可根据S的不同，分情况处理，
             public Boolean visitArrayType(ArrayType t, Type s) {
                 switch (s.tag) {
                 case ERROR:
                 case BOT:
                     return true;
                 case TYPEVAR:
+                    // 如果S是一个类型变量，这时候S类型变量的上界必须为Object、Serializable或Cloneable
+                    // S通过强制类型转换能够转换为T类型变量的上界，否则Javac将报编译错误
+                    //
                     if (isCastable(s, t, Warner.noWarnings)) {
                         warnStack.head.warn(LintCategory.UNCHECKED);
                         return true;
@@ -1119,12 +1257,17 @@ public class Types {
                         return false;
                     }
                 case CLASS:
+                    // 如果S是一个类，那么S必须是Object；如果S是接口，那么S必须是Serializable或者Cloneable。
+                    // 两者之间有父子关系，直接调用isSubtype()方法判断即可。
                     return isSubtype(t, s);
                 case ARRAY:
+                    // 如果S是一个数组，那么调用elemtype()方法得到组成数组的元素类型
                     if (elemtype(t).tag <= lastBaseTag ||
                             elemtype(s).tag <= lastBaseTag) {
+                        // 如果有一个为基本类型，那么另外一个也必须为基本类型，而且两者必须相等
                         return elemtype(t).tag == elemtype(s).tag;
                     } else {
+                        // 如果都是引用类型，那么组成数组T的元素类型必须能够通过强制类型转换转换为组成数组S的元素类型，因此继续调用visit()方法来判断
                         return visit(elemtype(t), elemtype(s));
                     }
                 default:
@@ -1133,6 +1276,7 @@ public class Types {
             }
 
             @Override
+            // 当t与s同时为类型变量时，如果t为s的子类或t的上界能够强制转换为s时，则方法将返回true。
             public Boolean visitTypeVar(TypeVar t, Type s) {
                 switch (s.tag) {
                 case ERROR:
@@ -1159,8 +1303,9 @@ public class Types {
         };
     // </editor-fold>
 
-    // <editor-fold defaultstate="collapsed" desc="disjointTypes">
+    // 判断ts列表中和ss列表中是否有类型互斥，有返回true
     public boolean disjointTypes(List<Type> ts, List<Type> ss) {
+        // 当两个类型的实际类型参数列表ts与ss中有互斥类型时，方法将返回true
         while (ts.tail != null && ss.tail != null) {
             if (disjointType(ts.head, ss.head)) return true;
             ts = ts.tail;
@@ -1178,6 +1323,8 @@ public class Types {
      * The type C<X> is castable to C<Y> exactly if X and Y are not
      * disjoint.
      */
+    // 调用disjointType()方法判断列表ts与ss中对应位置的类型是否有类型交集，
+    // 如果没有，则将返回true
     public boolean disjointType(Type t, Type s) {
         return disjointType.visit(t, s);
     }
@@ -1186,6 +1333,7 @@ public class Types {
 
             private Set<TypePair> cache = new HashSet<TypePair>();
 
+            @Override
             public Boolean visitType(Type t, Type s) {
                 if (s.tag == WILDCARD)
                     return visit(s, t);
@@ -1206,6 +1354,8 @@ public class Types {
                 }
             }
 
+            // 判断两种类型是否有交集，是否互斥
+            // 参数t与s都不为通配符类型
             private boolean notSoftSubtypeRecursive(Type t, Type s) {
                 TypePair pair = new TypePair(t, s);
                 if (cache.add(pair)) {
@@ -1220,27 +1370,37 @@ public class Types {
             }
 
             @Override
+            // 当t或s中的任何一个类型为通配符类型时，都会调用visitWildcardType()方法进行判断
+            // 在visitWildcardType()方法中调用notSoftSubtype()方法时，
+            // 如果类型中有代表下界的类型，那么t会被指定为下界，或者t与s都为上界。
+            // 无论是上界还是下界，t与s可能为类型变量、类或接口。
             public Boolean visitWildcardType(WildcardType t, Type s) {
                 if (t.isUnbound())
                     return false;
 
                 if (s.tag != WILDCARD) {
                     if (t.isExtendsBound())
+                        // 判断s与t的上界的关系
                         return notSoftSubtypeRecursive(s, t.type);
-                    else // isSuperBound()
+                    else
+                        // 判断t的下界与s的关系
                         return notSoftSubtypeRecursive(t.type, s);
                 }
 
                 if (s.isUnbound())
                     return false;
-
+                // 代码执行到这里，t与s肯定都为通配符类型，而且都不是无界通配符类型
                 if (t.isExtendsBound()) {
                     if (s.isExtendsBound())
+                        // t与s都有上界
                         return !isCastableRecursive(t.type, upperBound(s));
                     else if (s.isSuperBound())
+                        // t有上界而s有下界
                         return notSoftSubtypeRecursive(lowerBound(s), t.type);
                 } else if (t.isSuperBound()) {
+                    // t为下界而s有上界
                     if (s.isExtendsBound())
+                        // 当t与s都为下界通配时，一定有类型交集，至少有Object类
                         return notSoftSubtypeRecursive(t.type, upperBound(s));
                 }
                 return false;
@@ -1271,21 +1431,33 @@ public class Types {
      * where <T extends Number> but it is not true that Integer cannot
      * possibly be a subtype of T.
      */
+    // 判断两种类型是否有交集，是否互斥
+    // 不互斥返回false
+    // 互斥返回true
     public boolean notSoftSubtype(Type t, Type s) {
-        if (t == s) return false;
+        // 如果类型中有代表下界的类型，那么t会被指定为下界，
+        // 或者t与s都为上界。无论是上界还是下界，t与s可能为类型变量、类或接口。
+        if (t == s)
+            return false;
         if (t.tag == TYPEVAR) {
+            // 当t.tag值为TYPEVAR时，t可能为TypeVar对象或CapturedType对象
             TypeVar tv = (TypeVar) t;
+            // 调用isCastable()方法判断t的上界是否可以转换为s的上界（当s也有上界时，取上界，否则就是s本身）
+            // 当isCastable()方法返回true时，表示t与s有类型交集，notSoftSubtype()方法返回false，两个类型不互斥
             return !isCastable(tv.bound,
+                               // relaxBound()方法以获取类型变量的上界
                                relaxBound(s),
                                Warner.noWarnings);
         }
         if (s.tag != WILDCARD)
+            // relaxBound()方法以获取类型变量的上界
             s = upperBound(s);
-
+                // relaxBound()方法以获取类型变量的上界
         return !isSubtype(t, relaxBound(s));
     }
 
     private Type relaxBound(Type t) {
+        // 当类型变量的上界仍然为类型变量时，继承获取类型变量上界，直到找到一个非类型类型的类型为止。
         if (t.tag == TYPEVAR) {
             while (t.tag == TYPEVAR)
                 t = t.getUpperBound();
@@ -1296,10 +1468,12 @@ public class Types {
     // </editor-fold>
 
     // <editor-fold defaultstate="collapsed" desc="isReifiable">
+    // 运行时类型是运行时存在的类型，通过调用isReifiable()方法判断
     public boolean isReifiable(Type t) {
         return isReifiable.visit(t);
     }
     // where
+    // 运行时类型判断
         private UnaryVisitor<Boolean> isReifiable = new UnaryVisitor<Boolean>() {
 
             public Boolean visitType(Type t, Void ignored) {
@@ -1307,10 +1481,13 @@ public class Types {
             }
 
             @Override
+            // 当t为类或接口时
             public Boolean visitClassType(ClassType t, Void ignored) {
+                // 如果t是组合类型或参数化类型，则将会返回false
                 if (t.isCompound())
                     return false;
                 else {
+                    // 当参数化类型中的实际类型参数都为无界通配符时，这个类型仍然是运行时类型
                     if (!t.isParameterized())
                         return true;
 
@@ -1323,11 +1500,13 @@ public class Types {
             }
 
             @Override
+            // 当t为数组类型时，visitArrayType()方法会继续判断数组元素的类型
             public Boolean visitArrayType(ArrayType t, Void ignored) {
                 return visit(t.elemtype);
             }
 
             @Override
+            // 当t为类型变量时，visitTypeVar()方法直接返回false，表示不是运行时类型
             public Boolean visitTypeVar(TypeVar t, Void ignored) {
                 return false;
             }
@@ -1394,10 +1573,13 @@ public class Types {
      * @param t a type
      * @param sym a symbol
      */
+    // 查找某个类型或某个类型的父类和实现接口
     public Type asSuper(Type t, Symbol sym) {
         return asSuper.visit(t, sym);
     }
     // where
+    // 查找某个类型或某个类型的父类和实现接口
+    // 查找出sym引用的类型
         private SimpleVisitor<Type,Symbol> asSuper = new SimpleVisitor<Type,Symbol>() {
 
             public Type visitType(Type t, Symbol sym) {
@@ -1406,18 +1588,26 @@ public class Types {
 
             @Override
             public Type visitClassType(ClassType t, Symbol sym) {
+                // t就是要查找的类型
                 if (t.tsym == sym)
                     return t;
-
+                // 查找父类
                 Type st = supertype(t);
+                // 父类为类或者类型变量 递归asSuper
                 if (st.tag == CLASS || st.tag == TYPEVAR || st.tag == ERROR) {
+                    // 递归查找
                     Type x = asSuper(st, sym);
+                    // 不为空时返回
                     if (x != null)
                         return x;
                 }
+                // 查找接口
                 if ((sym.flags() & INTERFACE) != 0) {
+                    // 查找实现的接口
                     for (List<Type> l = interfaces(t); l.nonEmpty(); l = l.tail) {
+                        // 递归查找
                         Type x = asSuper(l.head, sym);
+                        // 找到返回
                         if (x != null)
                             return x;
                     }
@@ -1427,14 +1617,18 @@ public class Types {
 
             @Override
             public Type visitArrayType(ArrayType t, Symbol sym) {
+                // 任何ArrayType对象的tsym都为Symtab类中预定义的ClassSymbol(name=Array)，
+                // 所以只能通过判断t是否为sym.type的子类型来确定
                 return isSubtype(t, sym.type) ? sym.type : null;
             }
 
             @Override
             public Type visitTypeVar(TypeVar t, Symbol sym) {
+                // 如果t.tsym等于sym，则t就是要查找的类型
                 if (t.tsym == sym)
                     return t;
                 else
+                    // 传入上界，递归查找
                     return asSuper(t.bound, sym);
             }
 
@@ -1451,15 +1645,22 @@ public class Types {
      * @param t a type
      * @param sym a symbol
      */
+    // asOuterSuper()方法与asSuper()方法相比，
+    // 不但会查找类型及类型的父类和实现接口，同时还会查找它的封闭类
     public Type asOuterSuper(Type t, Symbol sym) {
         switch (t.tag) {
+            // 当t为类或接口时
         case CLASS:
             do {
+                // 调用asSuper()方法查找t或t的父类或实现接口，如果找到就直接返回
                 Type s = asSuper(t, sym);
-                if (s != null) return s;
+                if (s != null)
+                    return s;
+                // 调用t.getEnclosingType()方法获取封闭类型后继续查找
                 t = t.getEnclosingType();
             } while (t.tag == CLASS);
             return null;
+            // 当t为数组或类型变量时，不存在查找封闭类型的情况
         case ARRAY:
             return isSubtype(t, sym.type) ? sym.type : null;
         case TYPEVAR:
@@ -1575,9 +1776,13 @@ public class Types {
      * types.<br>
      * (not defined for Method and ForAll types)
      */
+    // 当转换后的类型为裸类型时，还可能发生非检查转换
+    // isAssignable()方法判断t是否可以转换为s。
+    // 如果t有对应的常量值，则根据目标类型s来判断常量值是否在s所表示的范围内
     public boolean isAssignable(Type t, Type s, Warner warn) {
         if (t.tag == ERROR)
             return true;
+        // 对整数类型的编译常量进行处理
         if (t.tag <= INT && t.constValue() != null) {
             int value = ((Number)t.constValue()).intValue();
             switch (s.tag) {
@@ -1605,6 +1810,7 @@ public class Types {
                 break;
             }
         }
+        // 当t类型没有对应的常量值时
         return isConvertible(t, s, warn);
     }
     // </editor-fold>
@@ -1614,6 +1820,7 @@ public class Types {
      * The erasure of t {@code |t|} -- the type that results when all
      * type parameters in t are deleted.
      */
+    // 泛型擦除
     public Type erasure(Type t) {
         return erasure(t, false);
     }
@@ -1687,6 +1894,9 @@ public class Types {
      * @param supertype         is objectType if all bounds are interfaces,
      *                          null otherwise.
      */
+    // 创建组合类型
+    // 创建一个ClassSymbol对象，获取ClassType对象后初始化supertype_field与interfaces_field变量的值，
+    // 其实就相当于创建了一个空实现的类，然后指定这个类的父类和实现接口
     public Type makeCompoundType(List<Type> bounds,
                                  Type supertype) {
         ClassSymbol bc =
@@ -1741,6 +1951,7 @@ public class Types {
     // </editor-fold>
 
     // <editor-fold defaultstate="collapsed" desc="supertype">
+    // 求某个类型的父类
     public Type supertype(Type t) {
         return supertype.visit(t);
     }
@@ -1748,27 +1959,38 @@ public class Types {
         private UnaryVisitor<Type> supertype = new UnaryVisitor<Type>() {
 
             public Type visitType(Type t, Void ignored) {
-                // A note on wildcards: there is no good way to
-                // determine a supertype for a super bounded wildcard.
+                // 表示除类和接口、类型变量及数组外，其他类型的父类为null
                 return null;
             }
 
             @Override
+            // 在visitClassType()方法中，
+            // 当t.supertype_field值为空时会计算父类，然后赋值给t.supertype_field变量保存，
+            // 这样下次如果再次求这个类型的父类时就不用重复进行计算了
             public Type visitClassType(ClassType t, Void ignored) {
                 if (t.supertype_field == null) {
+                    // 获取父类
                     Type supertype = ((ClassSymbol)t.tsym).getSuperclass();
-                    // An interface has no superclass; its supertype is Object.
+                    // 接口没有父类，但是为了处理的方便，Javac默认接口的父类为Object
                     if (t.isInterface())
+                        // 默认接口的父类为Object
+                        // 接口在定义时就会赋值supertype_field变量为Object类
                         supertype = ((ClassType)t.tsym.type).supertype_field;
                     if (t.supertype_field == null) {
                         List<Type> actuals = classBound(t).allparams();
                         List<Type> formals = t.tsym.type.allparams();
                         if (t.hasErasedSupertypes()) {
+                            // t是裸类型
+                            // 调用erasureRecursive()方法擦除supertype中的泛型信息
                             t.supertype_field = erasureRecursive(supertype);
                         } else if (formals.nonEmpty()) {
+                            // t的定义类型有类型参数声明
+                            // 当t的定义类型有形式类型参数的声明时，formals列表将不为空
+                            // 调用types.subst()方法将supertype中含有formals列表中含有的所有类型替换为actuals列表中对应位置上的类型
                             t.supertype_field = subst(supertype, formals, actuals);
                         }
                         else {
+                            // 没有泛型的情况，直接返回父类型
                             t.supertype_field = supertype;
                         }
                     }
@@ -1783,7 +2005,10 @@ public class Types {
              * java.lang.Object.
              */
             @Override
+            // 例：/Users/yangluchao/Documents/GitHub/javac_study/src/book/c/Test5.java
             public Type visitTypeVar(TypeVar t, Void ignored) {
+                // 当类型变量的上界为类型变量或者类型变量的上界既不为组合类型也不为接口时，
+                // 直接取t.bound返回，否则调用supertype()方法继续求t.bound的父类。
                 if (t.bound.tag == TYPEVAR ||
                     (!t.bound.isCompound() && !t.bound.isInterface())) {
                     return t.bound;
@@ -1794,9 +2019,12 @@ public class Types {
 
             @Override
             public Type visitArrayType(ArrayType t, Void ignored) {
+                // 当数组类型t的组成元素为基本类型或Object类时
                 if (t.elemtype.isPrimitive() || isSameType(t.elemtype, syms.objectType))
+                    // 父类为调用arraySuperType()方法返回的类型，
                     return arraySuperType();
                 else
+                    // 否则调用supertype()方法求t.elemtype的父类，然后创建一个新的数组类型
                     return new ArrayType(supertype(t.elemtype), t.tsym);
             }
 
@@ -1823,24 +2051,11 @@ public class Types {
 
             @Override
             public List<Type> visitClassType(ClassType t, Void ignored) {
+                // 第1次判断t.interfaces_field为空
                 if (t.interfaces_field == null) {
                     List<Type> interfaces = ((ClassSymbol)t.tsym).getInterfaces();
+                    // 第2次判断t.interfaces_field为空
                     if (t.interfaces_field == null) {
-                        // If t.interfaces_field is null, then t must
-                        // be a parameterized type (not to be confused
-                        // with a generic type declaration).
-                        // Terminology:
-                        //    Parameterized type: List<String>
-                        //    Generic type declaration: class List<E> { ... }
-                        // So t corresponds to List<String> and
-                        // t.tsym.type corresponds to List<E>.
-                        // The reason t must be parameterized type is
-                        // that completion will happen as a side
-                        // effect of calling
-                        // ClassSymbol.getInterfaces.  Since
-                        // t.interfaces_field is null after
-                        // completion, we can assume that t is not the
-                        // type of a class/interface declaration.
                         Assert.check(t != t.tsym.type, t);
                         List<Type> actuals = t.allparams();
                         List<Type> formals = t.tsym.type.allparams();
@@ -1860,9 +2075,10 @@ public class Types {
 
             @Override
             public List<Type> visitTypeVar(TypeVar t, Void ignored) {
+                // 当t的上界为组合类型时，调用interfaces()方法继续求组合类型的实现接口
                 if (t.bound.isCompound())
                     return interfaces(t.bound);
-
+                // 当t的上界为接口时，返回仅含有这个接口的列表，否则没有实现接口，返回空列表
                 if (t.bound.isInterface())
                     return List.of(t.bound);
 
@@ -2228,6 +2444,7 @@ public class Types {
      * from the right: If lists have different length, discard leading
      * elements of the longer list.
      */
+    // 将t中含有form列表中含有的所有类型替换为to列表中对应位置上的类型
     public Type subst(Type t, List<Type> from, List<Type> to) {
         return new Subst(from, to).subst(t);
     }
@@ -2529,15 +2746,20 @@ public class Types {
      * the class and java.lang.Object in the class inheritance
      * graph. Undefined for all but reference types.
      */
+    // 类的秩是类继承图中类与 java.lang.Object 之间的最长路径的长度。
+    // 未定义除引用类型之外的所有类型。
+    // 计算继承体系中的最长继承路径
     public int rank(Type t) {
         switch(t.tag) {
         case CLASS: {
             ClassType cls = (ClassType)t;
+            // 当cls.rank_field的值小于0时，表示没有计算过这个变量的值，需要执行计算
             if (cls.rank_field < 0) {
                 Name fullname = cls.tsym.getQualifiedName();
                 if (fullname == names.java_lang_Object)
                     cls.rank_field = 0;
                 else {
+                    // 取继承体系中最长继承路径对应的值
                     int r = rank(supertype(cls));
                     for (List<Type> l = interfaces(cls);
                          l.nonEmpty();
@@ -2552,12 +2774,15 @@ public class Types {
         }
         case TYPEVAR: {
             TypeVar tvar = (TypeVar)t;
+            // 当cls.rank_field的值小于0时，表示没有计算过这个变量的值，需要执行计算
             if (tvar.rank_field < 0) {
                 int r = rank(supertype(tvar));
                 for (List<Type> l = interfaces(tvar);
                      l.nonEmpty();
                      l = l.tail) {
-                    if (rank(l.head) > r) r = rank(l.head);
+                    // 取继承体系中最长继承路径对应的值
+                    if (rank(l.head) > r)
+                        r = rank(l.head);
                 }
                 tvar.rank_field = r + 1;
             }
@@ -2652,26 +2877,39 @@ public class Types {
      * (that is, subclasses come first, arbitrary but fixed
      * otherwise).
      */
+    // 保存了类到调用closure()方法得到的列表的对应关系，避免对同一个类型的超类进行多次计算
     private Map<Type,List<Type>> closureCache = new HashMap<Type,List<Type>>();
 
     /**
      * Returns the closure of a class or interface type.
      */
+    // 返回类或者接口类型
+    // closure()方法通过调用supertype()方法查找直接父类，
+    // 通过interfaces()方法查找当前类实现的所有的接口，
+    // 然后递归调用closure()方法来完成所有的父类及接口查找
     public List<Type> closure(Type t) {
         List<Type> cl = closureCache.get(t);
         if (cl == null) {
+            // 查找父类型
             Type st = supertype(t);
             if (!t.isCompound()) {
+                // t不是组合类型
                 if (st.tag == CLASS) {
                     cl = insert(closure(st), t);
                 } else if (st.tag == TYPEVAR) {
                     cl = closure(st).prepend(t);
                 } else {
+                    // 当st.tag的值不为CLASS或TYPEVAR时，则可能为Object，
+                    // 因为Object的父类为Type.noType，其tag值为NONE
                     cl = List.of(t);
                 }
             } else {
+                // t是组合类型
+                // 如果t是组合类型时，由于组合类型并不是一个真实存在的类，因而不会将t保存到cl列表中，
+                // 直接调用closure()从父类查找即可
                 cl = closure(supertype(t));
             }
+            // 查找接口
             for (List<Type> l = interfaces(t); l.nonEmpty(); l = l.tail)
                 cl = union(cl, closure(l.head));
             closureCache.put(t, cl);
@@ -2682,7 +2920,11 @@ public class Types {
     /**
      * Insert a type in a closure
      */
+    // 当st.tag的值为TYPEVAR时，将t追加到closure(st)方法返回列表的头部，
+    // insert()方法不仅仅是将t插入到cl列表中，还会调用t.tsym的precedes()方法判断优先级。
+    // 优先级越高，越靠近cl列表的头部位置，因此最终cl列表中的元素都是按照优先级从高到低进行排序的
     public List<Type> insert(List<Type> cl, Type t) {
+        // 按优先级大小将t插入cl列表中
         if (cl.isEmpty() || t.tsym.precedes(cl.head.tsym, this)) {
             return cl.prepend(t);
         } else if (cl.head.tsym.precedes(t.tsym, this)) {
@@ -2695,16 +2937,20 @@ public class Types {
     /**
      * Form the union of two closures
      */
+    // 会根据类型的优先级来合并两个列表cl1与cl2，最后返回合并后的列表
     public List<Type> union(List<Type> cl1, List<Type> cl2) {
         if (cl1.isEmpty()) {
             return cl2;
         } else if (cl2.isEmpty()) {
             return cl1;
         } else if (cl1.head.tsym.precedes(cl2.head.tsym, this)) {
+            // cl1.head.tsym的优先级高
             return union(cl1.tail, cl2).prepend(cl1.head);
         } else if (cl2.head.tsym.precedes(cl1.head.tsym, this)) {
+            // cl2.head.tsym的优先级高
             return union(cl1, cl2.tail).prepend(cl2.head);
         } else {
+            // cl2.head.tsym与cl2.head.tsym优先级相同
             return union(cl1.tail, cl2.tail).prepend(cl1.head);
         }
     }
@@ -2812,6 +3058,9 @@ public class Types {
      * Return the minimum types of a closure, suitable for computing
      * compoundMin or glb.
      */
+    // cl列表中的元素是按优先级从高到低排好序
+    // 一般类型变量的优先级较高，子类的优先级次之，因此列表中类型变量会先出现。
+    // 如果两个类型有父子关系，则子类一定比父类的位置靠前
     private List<Type> closureMin(List<Type> cl) {
         ListBuffer<Type> classes = lb();
         ListBuffer<Type> interfaces = lb();
@@ -2948,6 +3197,10 @@ public class Types {
         }
 
         private Type arraySuperType = null;
+        // 调用makeCompoundType()方法创建一个组合类型，
+        // 这个组合类型的父类为Object并且实现了接口Serializable与Cloneable，
+        // 不过这个组合类型并不是真实存在，
+        // 所以对应的ClassSymbol对象中的flags_field中含有SYNTHETIC与COMPOUND标识
         private Type arraySuperType() {
             // initialized lazily to avoid problems during compiler startup
             if (arraySuperType == null) {
@@ -2975,24 +3228,33 @@ public class Types {
         return t1;
     }
     //where
+    // glb()方法可以求两个类型的最大下界（Greasted Lower Bound）
     public Type glb(Type t, Type s) {
         if (s == null)
             return t;
+        // 调用glb()方法的前提是t与s都必须为引用类型
         else if (t.isPrimitive() || s.isPrimitive())
             return syms.errType;
+        // 如果t和s有父子关系，则返回子类即可
         else if (isSubtypeNoCapture(t, s))
             return t;
+        // 如果t和s有父子关系，则返回子类即可
         else if (isSubtypeNoCapture(s, t))
             return s;
 
+        // 根据类型的优先级来合并两个列表cl1与cl2，最后返回合并后的列表
         List<Type> closure = union(closure(t), closure(s));
+        // 调用closureMin()方法计算bounds的值
         List<Type> bounds = closureMin(closure);
 
-        if (bounds.isEmpty()) {             // length == 0
+        // bounds列表中没有元素
+        if (bounds.isEmpty()) {
             return syms.objectType;
-        } else if (bounds.tail.isEmpty()) { // length == 1
+        } else if (bounds.tail.isEmpty()) {
+            // bounds列表中只有一个元素
             return bounds.head;
-        } else {                            // length > 1
+        } else {
+            // bounds列表中至少有两个元素
             int classCount = 0;
             for (Type bound : bounds)
                 if (!bound.isInterface())
@@ -3000,6 +3262,7 @@ public class Types {
             if (classCount > 1)
                 return createErrorType(t);
         }
+        // 当bounds列表中的值多于一个时，则调用makeCompoundType()方法创建一个组合类型
         return makeCompoundType(bounds);
     }
     // </editor-fold>
@@ -3204,6 +3467,8 @@ public class Types {
         }
         return buf.reverse();
     }
+    // 类型转换，类型捕获
+    // capture()方法会对所有的通配符类型进行类型捕获
     public Type capture(Type t) {
         if (t.tag != CLASS)
             return t;
@@ -3215,12 +3480,18 @@ public class Types {
             }
         }
         ClassType cls = (ClassType)t;
+        // 只针对参数化类型进行捕获，如果cls为裸类型或不是参数化类型时，则直接返回
         if (cls.isRaw() || !cls.isParameterized())
             return cls;
-
+        // G中声明了类型参数
         ClassType G = (ClassType)cls.asElement().asType();
+        // 形式类型参数的类型列表
+        // A列表中保存着所有声明类型参数的类型：class G<A1 extends U1>{}
         List<Type> A = G.getTypeArguments();
+        // 实际类型参数的类型列表
+        // T列表中保存着所有的实际类型参数的类型：G<? extends B1> a = new G<>();
         List<Type> T = cls.getTypeArguments();
+        // 经过捕获转换后的类型列表
         List<Type> S = freshTypeVariables(T);
 
         List<Type> currentA = A;
@@ -3230,6 +3501,7 @@ public class Types {
         while (!currentA.isEmpty() &&
                !currentT.isEmpty() &&
                !currentS.isEmpty()) {
+            // 当currentS.head不等于currentT.head时，也就是WildcardType对象被封装为CapturedType对象，需要进行类型捕获
             if (currentS.head != currentT.head) {
                 captured = true;
                 WildcardType Ti = (WildcardType)currentT.head;
@@ -3238,16 +3510,25 @@ public class Types {
                 if (Ui == null)
                     Ui = syms.objectType;
                 switch (Ti.kind) {
+                    // 当实际类型参数为无界通配符时，需要计算捕获类型上界与下界
                 case UNBOUND:
+                    // subst()方法将上界中含有的类型变量全部替换为捕获类型Si
                     Si.bound = subst(Ui, A, S);
+                    // 而下界为null，表示无下界
                     Si.lower = syms.botType;
                     break;
+                    // 当实际类型参数为上界通配符时，需要计算捕获类型上界与下界
                 case EXTENDS:
+                    // 调用glb()方法计算两个上界类型的最大下界并作为Si的上界
                     Si.bound = glb(Ti.getExtendsBound(), subst(Ui, A, S));
+                    // 下界为null，表示无下界
                     Si.lower = syms.botType;
                     break;
+                    // 当实际类型参数为下界通配符时，需要计算捕获类型上界与下界
                 case SUPER:
+                    // 上界为类型中声明类型参数时的上界，
                     Si.bound = subst(Ui, A, S);
+                    // 而下界就是实际传递的类型参数下界，也就是下界通配符下界。
                     Si.lower = Ti.getSuperBound();
                     break;
                 }
@@ -3267,13 +3548,18 @@ public class Types {
             return t;
     }
     // where
+    // 捕获并转换后类型参数
+    // 参数types是实际类型参数的类型：G<? extends B1> a = new G<>();
         public List<Type> freshTypeVariables(List<Type> types) {
             ListBuffer<Type> result = lb();
             for (Type t : types) {
+                // 当t为通配符类型时，需要进行捕获转换
                 if (t.tag == WILDCARD) {
                     Type bound = ((WildcardType)t).getExtendsBound();
                     if (bound == null)
                         bound = syms.objectType;
+                    // 将每个WildcardType对象封装为CapturedType对象并按顺序保存到result列表中
+                    // 而且两个列表中相同位置的元素有对应关系
                     result.append(new CapturedType(capturedName,
                                                    syms.noSymbol,
                                                    bound,
@@ -3298,26 +3584,32 @@ public class Types {
             return ss;
     }
 
+    // from类型转换为to类型，
+    // 它们是非最终的不相关。
+    // 此方法尝试通过公共超接口将类型参数从 to 传输到 from 来拒绝强制转换。
+    // sideCast()方法首先对from与to参数进行调整，调整后from肯定为非final修饰的类或接口，而to肯定为接口
     private boolean sideCast(Type from, Type to, Warner warn) {
-        // We are casting from type $from$ to type $to$, which are
-        // non-final unrelated types.  This method
-        // tries to reject a cast by transferring type parameters
-        // from $to$ to $from$ by common superinterfaces.
         boolean reverse = false;
         Type target = to;
+        // // 当to不为接口时，调整from与to参数的值
         if ((to.tsym.flags() & INTERFACE) == 0) {
             Assert.check((from.tsym.flags() & INTERFACE) != 0);
             reverse = true;
             to = from;
             from = target;
         }
+        // from为非final修饰的类或接口，而to为接口
+        // 对from进行泛型擦除后，调用superClosure()方法查找与to的所有共同父类
         List<Type> commonSupers = superClosure(to, erasure(from));
         boolean giveWarning = commonSupers.isEmpty();
-        // The arguments to the supers could be unified here to
-        // get a more accurate analysis
+        // 查找from与to的所有父类和接口的共同参数化类型并判断
         while (commonSupers.nonEmpty()) {
+            // 查找from与to的所有参数化类型
             Type t1 = asSuper(from, commonSupers.head.tsym);
-            Type t2 = commonSupers.head; // same as asSuper(to, commonSupers.head.tsym);
+            // // 也可以通过调用asSuper(to, commonSupers.head.tsym)方法得到t2
+            Type t2 = commonSupers.head;
+            // 如果t1与t2都为参数化类型，判断实际类型参数是否互斥
+            // 这个类型在擦写后是同一个类型，找到的参数化类型为t1与t2
             if (disjointTypes(t1.getTypeArguments(), t2.getTypeArguments()))
                 return false;
             giveWarning = giveWarning || (reverse ? giveWarning(t2, t1) : giveWarning(t1, t2));
@@ -3332,14 +3624,11 @@ public class Types {
         return true;
     }
 
+    // from类型转换为to类型
     private boolean sideCastFinal(Type from, Type to, Warner warn) {
-        // We are casting from type $from$ to type $to$, which are
-        // unrelated types one of which is final and the other of
-        // which is an interface.  This method
-        // tries to reject a cast by transferring type parameters
-        // from the final class to the interface.
         boolean reverse = false;
         Type target = to;
+        // 当to不为接口时，调整from与to参数的值
         if ((to.tsym.flags() & INTERFACE) == 0) {
             Assert.check((from.tsym.flags() & INTERFACE) != 0);
             reverse = true;
@@ -3372,10 +3661,14 @@ public class Types {
 
     private List<Type> superClosure(Type t, Type s) {
         List<Type> cl = List.nil();
+        // t为接口，因此只需要循环检查所有的实现接口即可
+        // 参数t为接口而s为泛型擦除后的类型，调用interfaces()方法查找t的所有实现接口后，判断这些接口与s的关系
         for (List<Type> l = interfaces(t); l.nonEmpty(); l = l.tail) {
             if (isSubtype(s, erasure(l.head))) {
+                // 当s是泛型擦除后的接口的子类时，则调用insert()方法添加到cl列表中
                 cl = insert(cl, l.head);
             } else {
+                // 否则递归调用superClosure()方法继续查找，调用union()方法将找到后的列表合并到cl列表中
                 cl = union(cl, superClosure(l.head, s));
             }
         }

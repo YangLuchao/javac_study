@@ -65,6 +65,7 @@ import static com.sun.tools.javac.code.TypeTags.*;
  *
  *  @see TypeTags
  */
+// Type类是Javac中所有类型的父类
 public class Type implements PrimitiveType {
 
     /** Constant type: no type at all. */
@@ -79,10 +80,14 @@ public class Type implements PrimitiveType {
      *
      *  @see TypeTags
      */
+    // 变量tag可以确定具体的类型
     public int tag;
 
     /** The defining class / interface / package / type variable
      */
+    // 对符号的引用 具体可能为类、接口、包、类型变量
+    // 引用类型来说，通常在创建Type类或子类的对象时会调用构造方法初始化tsym
+    // 而对于基本类型来说，表示基本类型的Type对象的tsym值一般都为null
     public TypeSymbol tsym;
 
     /**
@@ -325,6 +330,7 @@ public class Type implements PrimitiveType {
      *  Type validation will ensure that the only raw types
      *  in a program are types that miss all their type variables.
      */
+    // 区分裸类型或者运行时类型
     public boolean isRaw() {
         return false;
     }
@@ -430,11 +436,26 @@ public class Type implements PrimitiveType {
             throw new AssertionError();
     }
 
+    /*
+    声明一个参数化类型List<? extends Number>
+    ? extends Number就是用WildcardType对象来表示
+    public void test() {
+        Plate<?> p1;
+        Plate<? extends Fruit> p2;
+        Plate<? super Fruit> p3;
+     }
+     Plate<?>是个ClassType对象，typarams_field列表中有一个WildcardType对象，用来表示无界通配符？，WildcardType对象的type值为Object类型，所有无界通配符的默认上界都为Object类，kind值为UNBOUND，而bound就是Plate类在定义时声明的类型参数T，类型为TypeVar
+     对于Plate<? extends Fruit>来说，实际类型参数也是一个WildcardType对象，不过type为Fruit，kind为EXTENDS，而bound同样表示类型参数T的TypeVar对象。
+     Plate<? super Fruit>与Plate<? extends Fruit>类似，唯一不同的是kind的值，Plate<? super Fruit>类的kind值为SUPER
+     */
+    // WildcardType表示通配符类型
     public static class WildcardType extends Type
             implements javax.lang.model.type.WildcardType {
-
+        // type保存了通配符类型的上界或下界
         public Type type;
+        // kind保存了具体通配符的类型
         public BoundKind kind;
+        // bound保存了类型定义时声明的类型变量，一般为TypeVar对象
         public TypeVar bound;
 
         @Override
@@ -530,30 +551,44 @@ public class Type implements PrimitiveType {
         }
     }
 
+    // ClassType类表示类型，可能为类或接口
+    // ClassType实现了DeclaredType接口，表示声明的类或接口
+    // tag值为CLASS，tsym值一般为ClassSymbol对象
     public static class ClassType extends Type implements DeclaredType {
 
         /** The enclosing type of this type. If this is the type of an inner
          *  class, outer_field refers to the type of its enclosing
          *  instance class, in all other cases it referes to noType.
+         *  此类型的封闭类型。如果这是内部类的类型，
+         *  则外部字段指的是其封闭实例类的类型，
+         *  在所有其他情况下，它指的是 noType
          */
+        // outer_field保存封闭类型
+        // 如果当前类是非内部类，这个值为Type类中预先定义的、类型为JCNoType的noType对象
         private Type outer_field;
 
         /** The type parameters of this type (to be set once class is loaded).
          */
+        // typarams_field保存了类型参数的类型
+        // 如果当前表示的是定义时的类型，则typarams_field保存的是形式类型参数的类型
+        // 如果是使用已定义的类型，则typarams_field保存的是实际类型参数的类型
         public List<Type> typarams_field;
 
         /** A cache variable for the type parameters of this type,
          *  appended to all parameters of its enclosing class.
          *  @see #allparams
          */
+        // allparams_field除了保存所有类型参数的类型外，还会保存宿主类型中的所有类型参数
         public List<Type> allparams_field;
 
         /** The supertype of this class (to be set once class is loaded).
          */
+        // supertype_field保存当前类型的父类，如果为接口，则supertype_field保存的是Object类型
         public Type supertype_field;
 
         /** The interfaces of this class (to be set once class is loaded).
          */
+        // interfaces_field保存当前类型实现的所有接口
         public List<Type> interfaces_field;
 
         /** All the interfaces of this class, including missing ones.
@@ -655,6 +690,10 @@ public class Type implements PrimitiveType {
             return typarams_field;
         }
 
+        /**
+         * 判断当前类型是否为裸类型
+         * @return
+         */
         public boolean hasErasedSupertypes() {
             return isRaw();
         }
@@ -694,9 +733,14 @@ public class Type implements PrimitiveType {
          *  After validation, this is equivalent to:
          *  allparams.isEmpty() && tsym.type.allparams.nonEmpty();
          */
+        // 区分是裸类型还是运行时类型
+        // 例9-13、9-14
         public boolean isRaw() {
             return
-                this != tsym.type && // necessary, but not sufficient condition
+                // this != tsym.type: 如果当前为裸类型，那么裸类型与定义时的类型肯定不是使用同一个ClassType对象表示
+                this != tsym.type &&
+                // 由于类的嵌套关系，这个比较并不能确定当前就是裸类型
+                // 还需要通过alltyparams_field变量中保存的所有形式类型参数及当前alltyparams_field变量中保存的所有实际类型参数进行判断
                 tsym.type.allparams().nonEmpty() &&
                 allparams().isEmpty();
         }
@@ -732,6 +776,7 @@ public class Type implements PrimitiveType {
         }
     }
 
+    // 用来辅助查找泛型类型的超类
     public static class ErasedClassType extends ClassType {
         public ErasedClassType(Type outer, TypeSymbol tsym) {
             super(outer, List.<Type>nil(), tsym);
@@ -743,8 +788,20 @@ public class Type implements PrimitiveType {
         }
     }
 
+    /*
+     try {
+        o = Class.forName(className).newInstance();
+      } catch (InstantiationException | IllegalAccessException | ClassNotFoundException e) {
+        e.printStackTrace();
+      }
+      catch语句中异常参数e的类型就是UnionClassType
+      而在alternatives_field列表中保存了表示InstantiationException、IllegalAccessException与ClassNotFoundException类的ClassType对象
+     */
     // a clone of a ClassType that knows about the alternatives of a union type.
+    // UnionClassType类用来支持在单个catch语句中声明多个异常捕获类型
+    // UnionClassType对象的tag值为CLASS
     public static class UnionClassType extends ClassType implements UnionType {
+        // 保存了catch语句中声明多个异常捕获的类型
         final List<? extends Type> alternatives_field;
 
         public UnionClassType(ClassType ct, List<? extends Type> alternatives) {
@@ -775,9 +832,12 @@ public class Type implements PrimitiveType {
         }
     }
 
+    // ArrayType类表示数组类型
+    // tag值为ARRAY
     public static class ArrayType extends Type
             implements javax.lang.model.type.ArrayType {
 
+        // elemtype表示组成数组元素的类型
         public Type elemtype;
 
         public ArrayType(Type elemtype, TypeSymbol arrayClass) {
@@ -819,6 +879,7 @@ public class Type implements PrimitiveType {
             return elemtype.isParameterized();
         }
 
+        // 区分是裸类型还是运行时类型
         public boolean isRaw() {
             return elemtype.isRaw();
         }
@@ -859,10 +920,15 @@ public class Type implements PrimitiveType {
         }
     }
 
+    // MethodType类表示非泛型方法的类型
+    // tag值为METHOD
     public static class MethodType extends Type implements ExecutableType {
 
+        // 形式参数类型
         public List<Type> argtypes;
+        // 返回值类型
         public Type restype;
+        // 抛出异常类型
         public List<Type> thrown;
 
         public MethodType(List<Type> argtypes,
@@ -968,6 +1034,7 @@ public class Type implements PrimitiveType {
         }
     }
 
+    // 表示包类型
     public static class PackageType extends Type implements NoType {
 
         PackageType(TypeSymbol tsym) {
@@ -992,6 +1059,13 @@ public class Type implements PrimitiveType {
         }
     }
 
+    /*
+    class Test<T extends Number>{}
+    表示类型变量T的TypeVar对象的tag值为TYPEVAR
+    bound值为ClassType(tsym.name=Number)
+    lower的值为syms.botType
+     */
+    // 类型变量类型(泛型)
     public static class TypeVar extends Type implements TypeVariable {
 
         /** The upper bound of this type variable; set from outside.
@@ -1004,6 +1078,7 @@ public class Type implements PrimitiveType {
          *  itself. Furthermore, the erasure_field of the class
          *  points to the first class or interface bound.
          */
+        // bound保存类型变量的上界
         public Type bound = null;
 
         /** The lower bound of this type variable.
@@ -1011,6 +1086,9 @@ public class Type implements PrimitiveType {
          *  to syms.botType.
          *  Subtypes, such as CapturedType, may provide a different value.
          */
+        // lower保存类型变量的下界
+        // 由于类型变量在声明时不能指定下界，因而值通常为syms.botType，也就是null，
+        // lower变量的主要作用就是辅助进行类型捕获转换
         public Type lower;
 
         public TypeVar(Name name, Symbol owner, Type lower) {
@@ -1057,8 +1135,10 @@ public class Type implements PrimitiveType {
      *  both upper and lower bound.  CapturedType extends TypeVar with
      *  a lower bound.
      */
+    // 捕获类型，辅助进行类型捕获
     public static class CapturedType extends TypeVar {
 
+        // 通配符类型
         public WildcardType wildcard;
 
         public CapturedType(Name name,
@@ -1108,6 +1188,7 @@ public class Type implements PrimitiveType {
         public boolean isErroneous() { return qtype.isErroneous(); }
     }
 
+    // 含有泛型变量声明的方法类型,主要辅助进行类型推断
     public static class ForAll extends DelegatedType implements ExecutableType {
         public List<Type> tvars;
 
@@ -1217,6 +1298,7 @@ public class Type implements PrimitiveType {
     /** A class for instantiatable variables, for use during type
      *  inference.
      */
+    // 泛型中，待推断的类型变量类型，主要辅助进行类型推断
     public static class UndetVar extends DelegatedType {
         public List<Type> lobounds = List.nil();
         public List<Type> hibounds = List.nil();
@@ -1244,6 +1326,10 @@ public class Type implements PrimitiveType {
 
     /** Represents VOID or NONE.
      */
+    // void类型
+    // tag值可能为NONE或者VOID
+    // 当为NONE表示这不是一个类型，例如包名没有具体的Type类型
+    // 当方法返回类型为void时，tag的值为VOID。
     static class JCNoType extends Type implements NoType {
         public JCNoType(int tag) {
             super(tag, null);
@@ -1265,6 +1351,8 @@ public class Type implements PrimitiveType {
         }
     }
 
+    // 表示null类型
+    // tag值为BOT，这个类型可以转换为任何的引用类型
     static class BottomType extends Type implements NullType {
         public BottomType() {
             super(TypeTags.BOT, null);
@@ -1291,6 +1379,9 @@ public class Type implements PrimitiveType {
         }
     }
 
+    // 表示一个错误的类型
+    // tag值为ERROR
+    // originalType变量保存了一个具体的错误类型
     public static class ErrorType extends ClassType
             implements javax.lang.model.type.ErrorType {
 

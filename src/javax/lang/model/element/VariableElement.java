@@ -38,6 +38,8 @@ import javax.lang.model.util.Elements;
  * @author Peter von der Ah&eacute;
  * @since 1.6
  */
+// 可以表示一个成员变量、枚举常量、方法、构造方法参数、局部变量或异常参数，
+// VarSymbol类直接实现了这个接口
 public interface VariableElement extends Element {
 
     /**

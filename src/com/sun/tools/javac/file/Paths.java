@@ -103,7 +103,7 @@ public class Paths {
 
     /** Whether to warn about non-existent path elements */
     private boolean warn;
-
+    // 保存了StandardLocation类中的枚举常量到具体搜索路径的映射关系
     private Map<Location, Path> pathsForLocation;
 
     private boolean inited = false; // TODO? caching bad?
@@ -119,6 +119,7 @@ public class Paths {
      */
     private boolean isDefaultBootClassPath;
 
+    // 从pathsForLocation中获取Path
     Path getPathForLocation(Location location) {
         Path path = pathsForLocation.get(location);
         if (path == null)
@@ -130,6 +131,7 @@ public class Paths {
         // TODO? if (inited) throw new IllegalStateException
         // TODO: otherwise reset sourceSearchPath, classSearchPath as needed
         Path p;
+        // 对pathsForLocation进行填充
         if (path == null) {
             if (location == CLASS_PATH)
                 p = computeUserClassPath();
@@ -160,6 +162,7 @@ public class Paths {
     }
 
     protected void lazy() {
+        // 对pathsForLocation进行填充
         if (!inited) {
             warn = lint.isEnabled(Lint.LintCategory.PATH);
 
@@ -362,23 +365,37 @@ public class Paths {
         }
     }
 
+    // PLATOFRM_CLASS_PATH代表的搜索路径通过调用computeBootClassPath()方法得到
+    // 如果没有指定-endorseddirs命令，则获取系统属性java.endorsed.dirs所指定的目录路径；
+    // 如果没有指定-bootclasspath命令，则获取系统属性sun.boot.class.path所指定的目录路径；
+    // 如果没有指定-extdirs命令，则获取系统属性java.ext.dirs所指定的目录路径；
+    // 对于-Xbootclasspath/p:与-Xbootclasspath/a:命令指定的文件（通常为JAR包），直接添加到path集合中
     private Path computeBootClassPath() {
         defaultBootClassPathRtJar = null;
         Path path = new Path();
 
+        // 获取-bootclasspath指定的值
         String bootclasspathOpt = options.get(BOOTCLASSPATH);
+        // 获取-endorseddirs指定的值
         String endorseddirsOpt = options.get(ENDORSEDDIRS);
+        // 获取-extdirs指定的值
         String extdirsOpt = options.get(EXTDIRS);
+        // 获取-Xbootclasspath/p:指定的值
         String xbootclasspathPrependOpt = options.get(XBOOTCLASSPATH_PREPEND);
+        // 获取-Xbootclasspath/a:指定的值
         String xbootclasspathAppendOpt = options.get(XBOOTCLASSPATH_APPEND);
 
         path.addFiles(xbootclasspathPrependOpt);
 
+        // 当endorseddirsOpt为空时，
+        // 获取系统属性java.endorsed.dirs所指定的目录路径
         if (endorseddirsOpt != null)
             path.addDirectories(endorseddirsOpt);
         else
             path.addDirectories(System.getProperty("java.endorsed.dirs"), false);
 
+        // 当bootclasspathOpt为空时，
+        // 获取系统属性sun.boot.class.path所指定的目录路径
         if (bootclasspathOpt != null) {
             path.addFiles(bootclasspathOpt);
         } else {
@@ -397,6 +414,7 @@ public class Paths {
         // Strictly speaking, standard extensions are not bootstrap
         // classes, but we treat them identically, so we'll pretend
         // that they are.
+        // 如果extdirsOpt为空时，获取系统属性java.ext.dirs所指定的目录路径
         if (extdirsOpt != null)
             path.addDirectories(extdirsOpt);
         else
@@ -410,24 +428,31 @@ public class Paths {
         return path;
     }
 
+    // CLASS_PATH代表的搜索路径通过调用computeUserClassPath()方法得到
     private Path computeUserClassPath() {
+        // 获取-classpath指定的路径
         String cp = options.get(CLASSPATH);
 
         // CLASSPATH environment variable when run from `javac'.
+        // cp为空时，获取系统属性env.class.path所指定的目录路径
         if (cp == null) cp = System.getProperty("env.class.path");
 
         // If invoked via a java VM (not the javac launcher), use the
         // platform class path
+        // cp为空且系统属性application.home为空时，获取系统属性java.class.path所指定的目录路径
         if (cp == null && System.getProperty("application.home") == null)
             cp = System.getProperty("java.class.path");
 
         // Default to current working directory.
+        // cp为空时，默认为当前的工作目录
         if (cp == null) cp = ".";
 
         return new Path()
+                // 仅在classpath下搜索用户的JAR包
             .expandJarClassPaths(true)        // Only search user jars for Class-Paths
             .emptyPathDefault(new File("."))  // Empty path elt ==> current directory
-            .addFiles(cp);
+            // path默认的路径为当前的工作目录
+                .addFiles(cp);
     }
 
     private Path computeSourcePath() {

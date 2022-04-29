@@ -56,6 +56,7 @@ public class Names {
     public final Name clinit;
     public final Name error;
     public final Name any;
+    // 空字符串
     public final Name empty;
     public final Name one;
     public final Name period;

@@ -56,6 +56,7 @@ import javax.tools.Diagnostic;
  * @author Peter von der Ah&eacute;
  * @since 1.6
  */
+// 插入式注解处理器抽象类
 public abstract class AbstractProcessor implements Processor {
     /**
      * Processing environment providing by the tool framework.
@@ -77,6 +78,8 @@ public abstract class AbstractProcessor implements Processor {
      * @return the options recognized by this processor, or an empty
      * set if none
      */
+    // 用来给注解处理器配置支持的选项
+    // 如果不覆写这个方法，AbstractProcessor类中默认的实现会读取@SupportedOptions注解的配置
     public Set<String> getSupportedOptions() {
         SupportedOptions so = this.getClass().getAnnotation(SupportedOptions.class);
         if  (so == null)
@@ -94,6 +97,8 @@ public abstract class AbstractProcessor implements Processor {
      * @return the names of the annotation types supported by this
      * processor, or an empty set if none
      */
+    // 用来给注解处理器配置支持的注解类型
+    // 如果不覆写这个方法，AbstractProcessor类中默认的实现会读取@SupportedAnnotation Types注解的配置
     public Set<String> getSupportedAnnotationTypes() {
             SupportedAnnotationTypes sat = this.getClass().getAnnotation(SupportedAnnotationTypes.class);
             if  (sat == null) {
@@ -116,6 +121,8 @@ public abstract class AbstractProcessor implements Processor {
      *
      * @return the latest source version supported by this processor
      */
+    // 用来给注解处理器配置所支持的JDK版本
+    // 如果不覆写这个方法，AbstractProcessor类中默认的实现会读取@SupportedSourcerVersion注解的配置
     public SourceVersion getSupportedSourceVersion() {
         SupportedSourceVersion ssv = this.getClass().getAnnotation(SupportedSourceVersion.class);
         SourceVersion sv = null;
@@ -143,6 +150,7 @@ public abstract class AbstractProcessor implements Processor {
      * provides to the processor
      * @throws IllegalStateException if this method is called more than once.
      */
+    // 通过覆写init()方法并接收ProcessingEnvironment类型的参数可以初始化许多注解操作的工具类
     public synchronized void init(ProcessingEnvironment processingEnv) {
         if (initialized)
             throw new IllegalStateException("Cannot call init more than once.");
@@ -156,6 +164,9 @@ public abstract class AbstractProcessor implements Processor {
     /**
      * {@inheritDoc}
      */
+    // 因此如果通过继承AbstractProcessor类来编写自定义的处理器，
+    // 那么必须实现这个方法，Javac在运行注解处理器时会调用这个方法，
+    // 因此针对注解进行操作的逻辑都写在这个方法中。
     public abstract boolean process(Set<? extends TypeElement> annotations,
                                     RoundEnvironment roundEnv);
 

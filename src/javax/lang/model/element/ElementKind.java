@@ -38,50 +38,66 @@ package javax.lang.model.element;
  * @see Element
  * @since 1.6
  */
+// 元素的类型
 public enum ElementKind {
 
     /** A package. */
+    // 包
     PACKAGE,
 
     // Declared types
     /** An enum type. */
+    // 枚举
     ENUM,
     /** A class not described by a more specific kind (like {@code ENUM}). */
+    // 类
     CLASS,
     /** An annotation type. */
+    // 注解
     ANNOTATION_TYPE,
     /**
      * An interface not described by a more specific kind (like
      * {@code ANNOTATION_TYPE}).
      */
+    // 接口
     INTERFACE,
 
     // Variables
     /** An enum constant. */
+    // 枚举常量
     ENUM_CONSTANT,
     /**
      * A field not described by a more specific kind (like
      * {@code ENUM_CONSTANT}).
      */
+    // 成员变量
     FIELD,
     /** A parameter of a method or constructor. */
+    // 形参
     PARAMETER,
     /** A local variable. */
+    // 本地变量
     LOCAL_VARIABLE,
     /** A parameter of an exception handler. */
+    // 异常参数
     EXCEPTION_PARAMETER,
 
     // Executables
     /** A method. */
+    // 方法
     METHOD,
     /** A constructor. */
+    // 构造器
     CONSTRUCTOR,
     /** A static initializer. */
+    // clinit
     STATIC_INIT,
     /** An instance initializer. */
+    // init
     INSTANCE_INIT,
 
     /** A type parameter. */
+    // 类型变量(泛型)
     TYPE_PARAMETER,
 
     /**

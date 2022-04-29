@@ -74,6 +74,7 @@ import static com.sun.tools.javac.main.OptionName.*;
  * This code and its internal interfaces are subject to change or
  * deletion without notice.</b>
  */
+// Javac主要通过JavacFileManager类中提供的方法对相关的文件进行操作
 public class JavacFileManager extends BaseFileManager implements StandardJavaFileManager {
 
     public static char[] toArray(CharBuffer buffer) {
@@ -279,10 +280,11 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
                                Set<JavaFileObject.Kind> fileKinds,
                                boolean recurse,
                                ListBuffer<JavaFileObject> resultList) {
+        // 将directory与subdirectory拼接成一个绝对路径
         File d = subdirectory.getFile(directory);
         if (!caseMapCheck(d, subdirectory))
             return;
-
+        // 路径下的所有文件
         File[] files = d.listFiles();
         if (files == null)
             return;
@@ -293,14 +295,18 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
         for (File f: files) {
             String fname = f.getName();
             if (f.isDirectory()) {
+                // 对目录的处理逻辑
                 if (recurse && SourceVersion.isIdentifier(fname)) {
+                    // 递归
                     listDirectory(directory,
+                                  // 替换为新的fname
                                   new RelativeDirectory(subdirectory, fname),
                                   fileKinds,
                                   recurse,
                                   resultList);
                 }
             } else {
+                // 对文件的处理逻辑
                 if (isValidFile(fname, fileKinds)) {
                     JavaFileObject fe =
                         new RegularFileObject(this, fname, new File(d, fname));
@@ -320,6 +326,7 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
                                boolean recurse,
                                ListBuffer<JavaFileObject> resultList) {
         // Get the files directly in the subdir
+        // 获取subdirectory路径下的所有文件并追加到resultList列表中
         List<String> files = archive.getFiles(subdirectory);
         if (files != null) {
             for (; !files.isEmpty(); files = files.tail) {
@@ -329,6 +336,8 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
                 }
             }
         }
+        // 获取subdirectory及subdirectory目录的所有直接或间接子目录下的文件
+        // 并追加到resultList列表中
         if (recurse) {
             for (RelativeDirectory s: archive.getSubdirectories()) {
                 if (subdirectory.contains(s)) {
@@ -354,7 +363,9 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
         Archive archive = archives.get(container);
         if (archive == null) {
             // archives are not created for directories.
+            // 如果container为目录，就调用listDirectory()方法进行处理
             if  (fsInfo.isDirectory(container)) {
+                // 获取目录中满足要求的文件并追加到resultList列表中
                 listDirectory(container,
                               subdirectory,
                               fileKinds,
@@ -365,6 +376,7 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
 
             // Not a directory; either a file or non-existant, create the archive
             try {
+                // container是压缩包
                 archive = openArchive(container);
             } catch (IOException ex) {
                 log.error("error.reading.file",
@@ -372,6 +384,7 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
                 return;
             }
         }
+        // 获取压缩包中满足要求的文件并追加到resultList列表中
         listArchive(archive,
                     subdirectory,
                     fileKinds,
@@ -421,6 +434,7 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
      * An archive provides a flat directory structure of a ZipFile by
      * mapping directory names to lists of files (basenames).
      */
+    // 压缩包管理顶级接口
     public interface Archive {
         void close() throws IOException;
 
@@ -465,6 +479,9 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
 
     /** A directory of zip files already opened.
      */
+    // 这个变量主要用来缓存已经被加载过的压缩包，
+    // 如果根据参数container从archives中获取的值为null，
+    // 则表示可能是一个目录或者没有被加载过的压缩包
     Map<File, Archive> archives = new HashMap<File,Archive>();
 
     private static final String[] symbolFileLocation = { "lib", "ct.sym" };
@@ -490,11 +507,22 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
     }
 
     /** Open a new zip file directory, and cache it.
+     *
      */
+    // openArchive()方法首先对ct.sym这个特殊的压缩包做处理
+    // 根据rt.jar包的绝对路径找到ct.sym包的绝对路径
+    // ignoreSymbolFile是boolean类型的变量，默认值为false
+    // 调用paths.isDefaultBootClassPathRtJar() 方法，判断zipFileName是否为代表JAVA_HOME\jre\lib\路径下的rt.jar包，如果是就返回true，然后继续对rt.jar包进行处理
+    // 执行完代码后就找到了JAVA_HOME的路径，然后拼接symbolFileLocation数组中保存的值
+    // openArchive()方法接着根据不同的配置参数及压缩包选择性创建不同的Archive对象
+    // 当origZipFileName与zipFileName相等时，表示读取的是非rt.jar包，创建ZipFileIndexArchive对象
+    // 否则也会创建ZipFileIndexArchive对象，只是调用zipFileIndexCache.getZipFileIndex()方法时会给第2个参数传递symbolFilePrefix
     private Archive openArchive(File zipFileName, boolean useOptimizedZip) throws IOException {
         File origZipFileName = zipFileName;
+        // 根据rt.jar包的绝对路径找到ct.sym包的绝对路径
         if (!ignoreSymbolFile && paths.isDefaultBootClassPathRtJar(zipFileName)) {
-            File file = zipFileName.getParentFile().getParentFile(); // ${java.home}
+            // ${java.home}
+            File file = zipFileName.getParentFile().getParentFile();
             if (new File(file.getName()).equals(new File("jre")))
                 file = file.getParentFile();
             // file == ${jdk.home}
@@ -540,11 +568,11 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
                     }
                 }
             }
-
+            // 读取的是非rt.jar包中的内容
             if (origZipFileName == zipFileName) {
                 if (!useOptimizedZip) {
                     archive = new ZipArchive(this, zdir);
-                } else {
+                } else {// 读取的是rt.jar包中的内容
                     archive = new ZipFileIndexArchive(this,
                                     zipFileIndexCache.getZipFileIndex(zipFileName,
                                     null,
@@ -624,6 +652,10 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
         return getClassLoader(lb.toArray(new URL[lb.size()]));
     }
 
+    // Javac会查找java.util包路径下的List.class文件进行加载，根据java.util包路径只能得到查找文件的相对路径
+    // 而要加载一个文件必须要确定其绝对路径，
+    // 这时候就可以遍历PLATFORM_CLASS_PATH、 SOURCE_PATH及CLASS_PATH中的所有路径了，
+    // 然后与相对路径拼接为一个绝对路径，有了这个绝对路径后就可以判断哪个绝对路径下有List.class文件了
     public Iterable<JavaFileObject> list(Location location,
                                          String packageName,
                                          Set<JavaFileObject.Kind> kinds,
@@ -633,7 +665,8 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
         // validatePackageName(packageName);
         nullCheck(packageName);
         nullCheck(kinds);
-
+        // 获取location配置下的所有文件
+        // 返回的file对象是具体的压缩包
         Iterable<? extends File> path = getLocation(location);
         if (path == null)
             return List.nil();
@@ -802,6 +835,7 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
         else
             result = new ArrayList<RegularFileObject>();
         for (File f: files)
+            // Java源文件在Javac中被表示为RegularFileObject对象
             result.add(new RegularFileObject(this, nullCheck(f)));
         return result;
     }
@@ -852,11 +886,15 @@ public class JavacFileManager extends BaseFileManager implements StandardJavaFil
         return new File(arg);
     }
 
+    // 获取到相关location下的所有File对象
     public Iterable<? extends File> getLocation(Location location) {
         nullCheck(location);
+        // 对Location的pathsForLocation属性进行填充
         paths.lazy();
+        // 获取-d参数配置
         if (location == CLASS_OUTPUT) {
             return (getClassOutDir() == null ? null : List.of(getClassOutDir()));
+            // 获取-s参数配置
         } else if (location == SOURCE_OUTPUT) {
             return (getSourceOutDir() == null ? null : List.of(getSourceOutDir()));
         } else

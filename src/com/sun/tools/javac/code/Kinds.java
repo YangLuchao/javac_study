@@ -25,14 +25,14 @@
 
 package com.sun.tools.javac.code;
 
-import java.util.EnumSet;
-import java.util.Locale;
-
 import com.sun.tools.javac.api.Formattable;
 import com.sun.tools.javac.api.Messages;
 
-import static com.sun.tools.javac.code.TypeTags.*;
+import java.util.EnumSet;
+import java.util.Locale;
+
 import static com.sun.tools.javac.code.Flags.*;
+import static com.sun.tools.javac.code.TypeTags.*;
 
 /** Internal symbol kinds, which distinguish between elements of
  *  different subclasses of Symbol. Symbol kinds are organized so they can be
@@ -49,30 +49,43 @@ public class Kinds {
 
     /** The empty set of kinds.
      */
+    // 在语句合及表达式分析过程中，表示对所分析的语句或表达式没有符号期望
     public final static int NIL = 0;
 
     /** The kind of package symbols.
      */
+    // 用来表示PackageSymbol对象，也可用在语句及表达式分析过程中，
+    // 表示对所分析的语句或表达式的符号期望为PackageSymbol
     public final static int PCK = 1 << 0;
 
     /** The kind of type symbols (classes, interfaces and type variables).
      */
+    // 用来表示ClassSymbol或TypeSymbol对象，也可用在语句及表达式的分过程中，
+    // 表示对所分析的语句或表达式的符号期望为ClassSymbol(类)或TypeSymbol(类型变量)
     public final static int TYP = 1 << 1;
 
     /** The kind of variable symbols.
      */
+    // 用来标识VarSymbol对象，也可用在语句及表达式的分析过程中，
+    // 表示对所分析的语句或表达式的符号期望为VarSymbol(变量)
     public final static int VAR = 1 << 2;
 
     /** The kind of values (variables or non-variable expressions), includes VAR.
      */
+    // 用在语句及表达式的分析过程中，
+    // 表示对所分析的语句或表达式的符号期望为VarSymbol(变量)或者常量值
     public final static int VAL = (1 << 3) | VAR;
 
     /** The kind of methods.
      */
+    // 用来标识MethodSymbol或OperatorMethodSymbol对象，
+    // 也可用在语句及表达式的分析过程中，
+    // 表示对所分析的语句或表达式的符号期望为MethodSymbol或OperatorMethodSymbol
     public final static int MTH = 1 << 4;
 
     /** The error kind, which includes all other kinds.
      */
+    // 用来标识已经错误的符号对象
     public final static int ERR = (1 << 5) - 1;
 
     /** The set of all kinds.

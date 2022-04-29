@@ -178,6 +178,8 @@ public abstract class BaseFileManager {
         return defaultEncodingName;
     }
 
+    // 获取编码方式
+    // 如果没有配置-encoding命令，就使用默认的编码读取
     public String getEncodingName() {
         String encName = options.get(OptionName.ENCODING);
         if (encName == null)
@@ -187,6 +189,7 @@ public abstract class BaseFileManager {
     }
 
     public CharBuffer decode(ByteBuffer inbuf, boolean ignoreEncodingErrors) {
+        // 获取编码方式
         String encodingName = getEncodingName();
         CharsetDecoder decoder;
         try {
@@ -207,6 +210,7 @@ public abstract class BaseFileManager {
             allocate(10 + (int)(inbuf.remaining()*factor));
 
         while (true) {
+            // 解码
             CoderResult result = decoder.decode(inbuf, dest, true);
             dest.flip();
 
@@ -277,8 +281,10 @@ public abstract class BaseFileManager {
         throws IOException {
         int limit = in.available();
         if (limit < 1024) limit = 1024;
+        // 从本地缓存中取需要的长度
         ByteBuffer result = byteBufferCache.get(limit);
         int position = 0;
+        // 循环读取文件输入流，每次读取1024个字符并放入到result中
         while (in.available() != 0) {
             if (position >= limit)
                 // expand buffer
@@ -291,10 +297,13 @@ public abstract class BaseFileManager {
             if (count < 0) break;
             result.position(position += count);
         }
+        // 返回给makeByteBuffer()方法调用者的值就可以直接从头开始读取result的内容了
         return (ByteBuffer)result.flip();
     }
-
+    // 将已经使用完的
+    //ByteBuffer对象赋值给cached，这样下次调用get()方法就可以重用了
     public void recycleByteBuffer(ByteBuffer bb) {
+        // 将bf对象又放入缓存中
         byteBufferCache.put(bb);
     }
 
@@ -306,30 +315,46 @@ public abstract class BaseFileManager {
         ByteBuffer get(int capacity) {
             if (capacity < 20480) capacity = 20480;
             ByteBuffer result =
+                    // cached不为空并且容量大于等于20480时，调用cached.clear()方法清除之前的缓存数据
+                    // 然后附复用这个对象
                 (cached != null && cached.capacity() >= capacity)
                 ? (ByteBuffer)cached.clear()
+                        // cached为空或者容量太小，则重新分配一个容量大小为capacity+capacity>>1的ByteBuffer对象并返回
                 : ByteBuffer.allocate(capacity + capacity>>1);
+            // 每次获取到ByteBuffer对象result时，一定要将cached置为空，因为缓存的对象已经被使用了
+            // 如果不置为空，那么在cached使用期间，再次调用get()方法时很可能返回的就是正在被使用的cached
             cached = null;
             return result;
         }
+        // 将已经使用完的ByteBuffer对象赋值给cached，这样下次调用get()方法就可以重用了
         void put(ByteBuffer x) {
             cached = x;
         }
     }
 
+    // 缓存ByteBuffer对象,当按顺序读取多个文件时，
+    // 用到的ByteBuffer对象可能是同一个，也省去了频繁创建对象的开销
     private final ByteBufferCache byteBufferCache;
     // </editor-fold>
 
     // <editor-fold defaultstate="collapsed" desc="Content cache">
+    // 当下一次再获取同一个文件的字符输入流时，
+    // 如果contentCache中已经缓存了就直接获取，
+    // 如果缓存失效或者首次获取时为空，
+    // 在getCharContent()方法中调用getCachedContent()方法将返回null
     public CharBuffer getCachedContent(JavaFileObject file) {
+        // contentCache是一个保存文件到字符缓冲对象映射的成员变量
         SoftReference<CharBuffer> r = contentCache.get(file);
         return (r == null ? null : r.get());
     }
 
+    // 缓存改文件对应的字节缓冲对象
     public void cache(JavaFileObject file, CharBuffer cb) {
         contentCache.put(file, new SoftReference<CharBuffer>(cb));
     }
 
+    // contentCache是一个保存文件到字符缓冲对象映射的成员变量
+    // 表示通过软引用来保持对字符缓冲的引用，当内存不足时会回收这部分缓存数据所占用的内存，同时也能兼顾读取文件的效率。
     protected final Map<JavaFileObject, SoftReference<CharBuffer>> contentCache
             = new HashMap<JavaFileObject, SoftReference<CharBuffer>>();
     // </editor-fold>

@@ -33,9 +33,12 @@ package com.sun.tools.javac.jvm;
  *  If you write code that depends on this, you do so at your own risk.
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
+ *//*
+大部分的运算符根据操作数类型的不同会对应不同的指令，
+指令已经在com.sun.tools.javac.jvm.ByteCodes类中预先进行了定义，
+大部分的指令都严格与Java虚拟机中的指令相对应，少一部分的指令在Java虚拟机中并没有对应的指令，需要后期做相应的处理
  */
 public interface ByteCodes {
-
     /** Byte code instruction codes.
      */
     int illegal         = -1,

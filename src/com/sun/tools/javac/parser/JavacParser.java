@@ -49,6 +49,20 @@ import static com.sun.tools.javac.parser.Token.*;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 含赋值运算符的表达式由term()方法处理；
+// 含三元运算符的表达式由term1()方法处理；
+// 含二元运算符的表达式由term2()方法处理；
+// 含一元运算符的表达式及基本表达式由term3()方法处理
+/*
+分类名称中运算符从上到下运算的优先级是从低到高，
+但是在实际调用过程中却是term()方法首先调用term1()方法，
+term1()方法中首先调用term2()方法，
+term2()方法中首先调用term3()方法，这也就表示了高优先级的先处理。
+赋值运算符、三元运算符与一元运算符是从右向左结合的，
+上面的调用又恰好满足了这个需求，也就是如果优先级相等的话，运算符右侧的表达式要先处理。
+对于二元运算符来说，有不同的优先级，如果优先级相同，则从左向右结合，
+因此term2Rest()方法对含有二元运算符的表达式处理更复杂一些。
+ */
 public class JavacParser implements Parser {
 
     /** The number of precedence levels of infix operators.
@@ -295,6 +309,7 @@ public class JavacParser implements Parser {
     /** If next input token matches given token, skip it, otherwise report
      *  an error.
      */
+    // 切换到下一个token
     public void accept(Token token) {
         if (S.token() == token) {
             S.nextToken();
@@ -411,7 +426,9 @@ public class JavacParser implements Parser {
 
     /**
      * Ident = IDENTIFIER
+     * 标识符
      */
+    // 标识符
     Name ident() {
         if (S.token() == IDENTIFIER) {
             Name name = S.name();
@@ -447,8 +464,11 @@ public class JavacParser implements Parser {
 
     /**
      * Qualident = Ident { DOT Ident }
+     * 一个或多个.标识符
      */
     public JCExpression qualident() {
+        // JCExpression t = F.Ident(ident());
+        // 删除了记录字符位置相关的代码，这些代码在编译出现错误时，能够提示代码编写者具体错误的位置
         JCExpression t = toP(F.at(S.pos()).Ident(ident()));
         while (S.token() == DOT) {
             int pos = S.pos();
@@ -571,19 +591,27 @@ public class JavacParser implements Parser {
 
     /** terms can be either expressions or types.
      */
+    // 解析表达式
     public JCExpression parseExpression() {
         return term(EXPR);
     }
 
+    // 解析类型
     public JCExpression parseType() {
         return term(TYPE);
     }
 
+    // 解析赋值表达式
     JCExpression term(int newmode) {
+        // 保存当前的mode值
         int prevmode = mode;
+        // 当前分析项的期望
         mode = newmode;
+        // 分析完当前项
         JCExpression t = term();
+        // 上一次处理的期望
         lastmode = mode;
+        // 还原期望
         mode = prevmode;
         return t;
     }
@@ -599,24 +627,34 @@ public class JavacParser implements Parser {
      *  StatementExpression = Expression
      *  ConstantExpression = Expression
      */
+    // 含赋值运算符的表达式由term()方法处理
     JCExpression term() {
         JCExpression t = term1();
         if ((mode & EXPR) != 0 &&
             S.token() == EQ || PLUSEQ.compareTo(S.token()) <= 0 && S.token().compareTo(GTGTGTEQ) <= 0)
+            // "=" | "+=" | "-=" | "*=" | "/=" |
+            // "&=" | "|=" | "^=" |
+            // "%=" | "<<=" | ">>=" | ">>>="
+            // 走这里
             return termRest(t);
         else
             return t;
     }
 
+    // 调用term()方法处理Expression文法产生式中的Expression，
+    // 如果为等号赋值运算符，则最终生成JCAssign对象，然后将mode的值更新为EXPR；
+    // 如果为复合赋值运算符，则最终生成JCAssignOp对象，mode的值同样更新为EXPR
     JCExpression termRest(JCExpression t) {
         switch (S.token()) {
-        case EQ: {
+        case EQ: { // 解释赋值表达式右侧表达式
             int pos = S.pos();
             S.nextToken();
             mode = EXPR;
+            // 生成JCAssign对象
             JCExpression t1 = term();
             return toP(F.at(pos).Assign(t, t1));
         }
+        // 解释复合赋值表达式右侧表达式
         case PLUSEQ:
         case SUBEQ:
         case STAREQ:
@@ -632,6 +670,7 @@ public class JavacParser implements Parser {
             Token token = S.token();
             S.nextToken();
             mode = EXPR;
+            // 生成JCAssignOp(复合运算符对象)
             JCExpression t1 = term();
             return F.at(pos).Assignop(optag(token), t, t1);
         default:
@@ -643,10 +682,13 @@ public class JavacParser implements Parser {
      *  Type1         = Type2
      *  TypeNoParams1 = TypeNoParams2
      */
+    // 三元运算符的表达式由term1()方法处理
     JCExpression term1() {
+        // 解析二元表达式
         JCExpression t = term2();
         if ((mode & EXPR) != 0 && S.token() == QUES) {
             mode = EXPR;
+            // 三元表达式走这里
             return term1Rest(t);
         } else {
             return t;
@@ -655,13 +697,17 @@ public class JavacParser implements Parser {
 
     /** Expression1Rest = ["?" Expression ":" Expression1]
      */
+    // 处理三元表达式
     JCExpression term1Rest(JCExpression t) {
         if (S.token() == QUES) {
             int pos = S.pos();
             S.nextToken();
+            // Expression做处理时调用了term()方法
             JCExpression t1 = term();
             accept(COLON);
+            // 对Expression1处理时调用了term1()方法
             JCExpression t2 = term1();
+            // 创建JCConditional对象
             return F.at(pos).Conditional(t, t1, t2);
         } else {
             return t;
@@ -672,7 +718,10 @@ public class JavacParser implements Parser {
      *  Type2         = Type3
      *  TypeNoParams2 = TypeNoParams3
      */
+    // 解析二元表达式
+    // 二元运算符的表达式由term2()方法处理
     JCExpression term2() {
+        // 解析基础表达式
         JCExpression t = term3();
         if ((mode & EXPR) != 0 && prec(S.token()) >= TreeInfo.orPrec) {
             mode = EXPR;
@@ -695,10 +744,17 @@ public class JavacParser implements Parser {
      *                  | "+" | "-"
      *                  | "*" | "/" | "%"
      */
+    /*
+    对于二元运算符来说，
+    有不同的优先级，如果优先级相同，
+    则从左向右结合，因此term2Rest()方法对含有二元运算符的表达式处理更复杂一些
+     */
     JCExpression term2Rest(JCExpression t, int minprec) {
         List<JCExpression[]> savedOd = odStackSupply.elems;
+        // 储存基本表达式或一元表达式
         JCExpression[] odStack = newOdStack();
         List<Token[]> savedOp = opStackSupply.elems;
+        // 储存代表二元运算符Token对象
         Token[] opStack = newOpStack();
         List<int[]> savedPos = posStackSupply.elems;
         int[] posStack = newPosStack();
@@ -708,15 +764,23 @@ public class JavacParser implements Parser {
         int startPos = S.pos();
         Token topOp = ERROR;
         int topOpPos = Position.NOPOS;
+        // 根据二元运算符的优先级合并odStack中存储的项
+        // 两个while语句的条件判断表达式的优先级
         while (prec(S.token()) >= minprec) {
+            // 外层循环调用S.token()方法读取一个运算符，
             posStack[top] = topOpPos;
             opStack[top] = topOp;
             top++;
             topOp = S.token();
             topOpPos = S.pos();
             S.nextToken();
+            // 通过parseType()方法读取一个类型或通过term3()方法读取一元表达式或者基本表达式
             odStack[top] = (topOp == INSTANCEOF) ? parseType() : term3();
+            // 内层循环判断topOp运算符与当前调用S.token()方法得到的运算符的优先级
+            // 如果之前读取的topOp运算符的优先级高，则要对odStack栈顶中的两项进行合并，
+            // 产生一个JCBinary或JCInstanceOf对象并压入栈内
             while (top > 0 && prec(topOp) >= prec(S.token())) {
+                // 从opStack中再弹出一个运算符并赋值为topOp，然后继续内层循环的逻辑
                 odStack[top-1] = makeOp(topOpPos, topOp, odStack[top-1],
                                         odStack[top]);
                 top--;
@@ -843,10 +907,26 @@ public class JavacParser implements Parser {
      *  TypeSelector   = "." Ident [TypeArguments]
      *  SuperSuffix    = Arguments | "." Ident [Arguments]
      */
+    /*
+    分类名称中运算符从上到下运算的优先级是从低到高，
+    但是在实际调用过程中却是term()方法首先调用term1()方法，
+    term1()方法中首先调用term2()方法，
+    term2()方法中首先调用term3()方法，
+    这也就表示了高优先级的先处理
+     */
+    /*
+    赋值运算符、三元运算符与一元运算符是从右向左结合的，
+    上面的调用又恰好满足了这个需求，也就是如果优先级相等的话，
+    运算符右侧的表达式要先处理。
+     */
+    // javac将类型也视为基本表达式
+    // 一元运算符的表达式及基本表达式由term3()方法处理
     protected JCExpression term3() {
         int pos = S.pos();
         JCExpression t;
+        // 型参列表
         List<JCExpression> typeArgs = typeArgumentsOpt(EXPR);
+        // 首个出现的Token
         switch (S.token()) {
         case QUES:
             if ((mode & TYPE) != 0 && (mode & (TYPEARG|NOPARAMS)) == TYPEARG) {
@@ -854,11 +934,13 @@ public class JavacParser implements Parser {
                 return typeArgument();
             } else
                 return illegal();
+        // ++、--、+、-、！、~  解析
         case PLUSPLUS: case SUBSUB: case BANG: case TILDE: case PLUS: case SUB:
             if (typeArgs == null && (mode & EXPR) != 0) {
                 Token token = S.token();
                 S.nextToken();
                 mode = EXPR;
+                // 对负的、十进制表示的整数类型字面量进行特殊处理
                 if (token == SUB &&
                     (S.token() == INTLITERAL || S.token() == LONGLITERAL) &&
                     S.radix() == 10) {
@@ -870,11 +952,18 @@ public class JavacParser implements Parser {
                 }
             } else return illegal();
             break;
+        // ++、--、+、-、！、~  解析
+        // 括号的解析
+        // 根据文法可知，括号中可能是Expression(表达式)或者Type(类型)
+        //（括号()-> 强转类型、表达式()->优先计算）
         case LPAREN:
             if (typeArgs == null && (mode & EXPR) != 0) {
                 S.nextToken();
+                // mode的期望为表达式或者类型
                 mode = EXPR | TYPE | NOPARAMS;
+                // 第一个term3()方法
                 t = term3();
+                // 期望为类型，且有左尖括号(<)
                 if ((mode & TYPE) != 0 && S.token() == LT) {
                     // Could be a cast to a parameterized type
                     int op = JCTree.LT;
@@ -882,8 +971,10 @@ public class JavacParser implements Parser {
                     S.nextToken();
                     mode &= (EXPR | TYPE);
                     mode |= TYPEARG;
+                    // 第二个term3()方法，得到泛型<>内的实际类型
                     JCExpression t1 = term3();
                     if ((mode & TYPE) != 0 &&
+                        // 解析参数化类型
                         (S.token() == COMMA || S.token() == GT)) {
                         mode = TYPE;
                         ListBuffer<JCExpression> args = new ListBuffer<JCExpression>();
@@ -903,6 +994,7 @@ public class JavacParser implements Parser {
                         }
                         t = bracketsOpt(toP(t));
                     } else if ((mode & EXPR) != 0) {
+                        // 左尖括号开头是二元运算符的一部分，生成二元表达式
                         mode = EXPR;
                         JCExpression e = term2Rest(t1, TreeInfo.shiftPrec);
                         t = F.at(pos1).Binary(op, t, e);
@@ -912,15 +1004,20 @@ public class JavacParser implements Parser {
                     }
                 }
                 else {
+                    // 当期望为表达式或当前的Token对象不代表左尖括号时，相当于调用term()方法解析
+                    // 调用表达式term2Rest(t1,TreeInfo.shiftPrec)最终返回表示b的JCIdent对象
                     t = termRest(term1Rest(term2Rest(t, TreeInfo.orPrec)));
                 }
                 accept(RPAREN);
+                // 解析( (Expression | Type) ) Expression3文法中的Expression3部分
                 lastmode = mode;
                 mode = EXPR;
+                // 当括号中的项不为表达式时，只能为类型，此时解析为强制类型转换表达式
                 if ((lastmode & EXPR) == 0) {
                     JCExpression t1 = term3();
                     return F.at(pos).TypeCast(t, t1);
                 } else if ((lastmode & TYPE) != 0) {
+                    // 括号中的项为类型，解析为强制类型转换表达式
                     switch (S.token()) {
                     /*case PLUSPLUS: case SUBSUB: */
                     case BANG: case TILDE:
@@ -938,18 +1035,26 @@ public class JavacParser implements Parser {
             } else return illegal();
             t = toP(F.at(pos).Parens(t));
             break;
+        // ( 解析
+        // this解析
+        // this()、this(i) 构造函数重载的调用
         case THIS:
             if ((mode & EXPR) != 0) {
                 mode = EXPR;
                 t = to(F.at(pos).Ident(names._this));
                 S.nextToken();
+                // 实参列表是否为空
                 if (typeArgs == null)
                     t = argumentsOpt(null, t);
                 else
+                    // 传参调用
                     t = arguments(typeArgs, t);
                 typeArgs = null;
             } else return illegal();
             break;
+        // this解析
+        // super解析
+        // Super构造函数的调用、super.class
         case SUPER:
             if ((mode & EXPR) != 0) {
                 mode = EXPR;
@@ -958,26 +1063,38 @@ public class JavacParser implements Parser {
                 typeArgs = null;
             } else return illegal();
             break;
+        // super解析
+        // 字面量的处理
         case INTLITERAL: case LONGLITERAL: case FLOATLITERAL: case DOUBLELITERAL:
         case CHARLITERAL: case STRINGLITERAL:
         case TRUE: case FALSE: case NULL:
             if (typeArgs == null && (mode & EXPR) != 0) {
                 mode = EXPR;
+                // 返回JCLiteral对象
                 t = literal(names.empty);
             } else return illegal();
             break;
+        // 字面量的处理
+        // new解析
         case NEW:
             if (typeArgs != null) return illegal();
             if ((mode & EXPR) != 0) {
                 mode = EXPR;
                 S.nextToken();
-                if (S.token() == LT) typeArgs = typeArguments(false);
+                // new 后面的第一个对象为左尖括号(<) ,
+                if (S.token() == LT)
+                    // 泛型擦除
+                    typeArgs = typeArguments(false);
+                // 解析new
                 t = creator(pos, typeArgs);
                 typeArgs = null;
             } else return illegal();
             break;
+        // new解析
+        // IDENTIFIER、断言、枚举处理
         case IDENTIFIER: case ASSERT: case ENUM:
             if (typeArgs != null) return illegal();
+            // 第一个ident方法
             t = toP(F.at(S.pos()).Ident(ident()));
             loop: while (true) {
                 pos = S.pos();
@@ -986,12 +1103,18 @@ public class JavacParser implements Parser {
                     S.nextToken();
                     if (S.token() == RBRACKET) {
                         S.nextToken();
+                        // 解释{[]}
                         t = bracketsOpt(t);
                         t = toP(F.at(pos).TypeArray(t));
+                        // 解释.class
                         t = bracketsSuffix(t);
                     } else {
                         if ((mode & EXPR) != 0) {
                             mode = EXPR;
+                            // 解释IdentifierSuffix文法第1个产生式中的Expression
+                            // 首个Token对象可能是LBRACKET([)或DOT(.)，或者为Expression时，
+                            // 调用term()方法进行处理。
+                            // 当Token对象为LBRACKET([)时，处理形如String[].class或String[2]这样的表达式
                             JCExpression t1 = term();
                             t = to(F.at(pos).Indexed(t, t1));
                         }
@@ -1001,14 +1124,18 @@ public class JavacParser implements Parser {
                 case LPAREN:
                     if ((mode & EXPR) != 0) {
                         mode = EXPR;
+                        // 解释IdentifierSuffix文法第2个产生式中的Arguments
+                        // 首个Token对象为LPAREN(()，处理形如方法调用md(a,b)这样的表达式
                         t = arguments(typeArgs, t);
                         typeArgs = null;
                     }
                     break loop;
+                // 解释IdentifierSuffix文法第3个产生式
                 case DOT:
                     S.nextToken();
                     int oldmode = mode;
                     mode &= ~NOPARAMS;
+                    // 解释IdentifierSuffix文法第3个产生式
                     typeArgs = typeArgumentsOpt(EXPR);
                     mode = oldmode;
                     if ((mode & EXPR) != 0) {
@@ -1043,6 +1170,7 @@ public class JavacParser implements Parser {
                         }
                     }
                     // typeArgs saved for next loop iteration.
+                    // 第二个ident()方法
                     t = toP(F.at(pos).Select(t, ident()));
                     break;
                 default:
@@ -1052,17 +1180,28 @@ public class JavacParser implements Parser {
             if (typeArgs != null) illegal();
             t = typeArgumentsOpt(t);
             break;
+        // IDENTIFIER、断言、枚举处理
+        // int[].class、int[][].class 基础类型的数组类解释
         case BYTE: case SHORT: case CHAR: case INT: case LONG: case FLOAT:
         case DOUBLE: case BOOLEAN:
-            if (typeArgs != null) illegal();
+            if (typeArgs != null)
+                illegal();
+            // 调用basicType()方法处理BasicType，
+            // 得到一个JCPrimitiveTypeTree对象；
+            // 然后调用bracketsOpt()方法处理可选择的多个方括号对；
+            // 最后调用bracketsSuffix()方法处理方法中的.class部分。
+            // 相应的方法会对期望mode进行更新
             t = bracketsSuffix(bracketsOpt(basicType()));
             break;
+        // int[].class、int[][].class 基础类型的数组类解释
+        // void解释
         case VOID:
             if (typeArgs != null) illegal();
             if ((mode & EXPR) != 0) {
                 S.nextToken();
                 if (S.token() == DOT) {
                     JCPrimitiveTypeTree ti = toP(F.at(pos).TypeIdent(TypeTags.VOID));
+                    // 调用bracketsSuffix()方法处理.class
                     t = bracketsSuffix(ti);
                 } else {
                     return illegal(pos);
@@ -1077,12 +1216,15 @@ public class JavacParser implements Parser {
                 //return illegal();
             }
             break;
+        // void解释
         default:
             return illegal();
         }
         if (typeArgs != null) illegal();
+        // 出现的首个Token对象为DOT(.)或者LBRACKET([)
         while (true) {
             int pos1 = S.pos();
+            // 首个Token是[
             if (S.token() == LBRACKET) {
                 S.nextToken();
                 if ((mode & TYPE) != 0) {
@@ -1098,15 +1240,20 @@ public class JavacParser implements Parser {
                 }
                 if ((mode & EXPR) != 0) {
                     mode = EXPR;
+                    // 处理中括号中的表达式
                     JCExpression t1 = term();
+                    // 创建JCArrayAccess对象
                     t = to(F.at(pos1).Indexed(t, t1));
                 }
                 accept(RBRACKET);
+                // 首个Token是.
+                // 当首个Token对象为DOT时，可能出现的下一个Token对象为SUPER、NEW、THIS或IDENTIFIER
             } else if (S.token() == DOT) {
                 S.nextToken();
                 typeArgs = typeArgumentsOpt(EXPR);
                 if (S.token() == SUPER && (mode & EXPR) != 0) {
                     mode = EXPR;
+                    // 生成JCFieldAccess对象
                     t = to(F.at(pos1).Select(t, names._super));
                     S.nextToken();
                     t = arguments(typeArgs, t);
@@ -1117,9 +1264,11 @@ public class JavacParser implements Parser {
                     int pos2 = S.pos();
                     S.nextToken();
                     if (S.token() == LT) typeArgs = typeArguments(false);
+                    // 生成JCNewClass对象
                     t = innerCreator(pos2, typeArgs, t);
                     typeArgs = null;
                 } else {
+                    // 调用ident()方法生成Name对象
                     t = toP(F.at(pos1).Select(t, ident()));
                     t = argumentsOpt(typeArgs, typeArgumentsOpt(t));
                     typeArgs = null;
@@ -1128,8 +1277,10 @@ public class JavacParser implements Parser {
                 break;
             }
         }
+        // ++ --解释
         while ((S.token() == PLUSPLUS || S.token() == SUBSUB) && (mode & EXPR) != 0) {
             mode = EXPR;
+            // 创建JCUnary对象
             t = to(F.at(S.pos()).Unary(
                   S.token() == PLUSPLUS ? JCTree.POSTINC : JCTree.POSTDEC, t));
             S.nextToken();
@@ -1518,8 +1669,10 @@ public class JavacParser implements Parser {
 
     /** Block = "{" BlockStatements "}"
      */
+    // 解释块
     JCBlock block(int pos, long flags) {
         accept(LBRACE);
+        // 解释块中的块语句
         List<JCStatement> stats = blockStatements();
         JCBlock t = F.at(pos).Block(flags, stats);
         while (S.token() == CASE || S.token() == DEFAULT) {
@@ -1533,6 +1686,7 @@ public class JavacParser implements Parser {
         return toP(t);
     }
 
+    // 解释块
     public JCBlock block() {
         return block(S.pos(), 0);
     }
@@ -1544,6 +1698,11 @@ public class JavacParser implements Parser {
      *  LocalVariableDeclarationStatement
      *                  = { FINAL | '@' Annotation } Type VariableDeclarators ";"
      */
+    // 解释块语句
+    // 有三种文法需要处理
+    // LocalVariableDeclarationStatement:VariableModifier或者Type
+    // ClassOrInterfaceOrEnumDeclaration:类或接口
+    // [Ident ":"] Statement:
     @SuppressWarnings("fallthrough")
     List<JCStatement> blockStatements() {
 //todo: skip to anchor on error(?)
@@ -1553,6 +1712,7 @@ public class JavacParser implements Parser {
             int pos = S.pos();
             switch (S.token()) {
             case RBRACE: case CASE: case DEFAULT: case EOF:
+                // 直接返回空语句集合
                 return stats.toList();
             case LBRACE: case IF: case FOR: case WHILE: case DO: case TRY:
             case SWITCH: case SYNCHRONIZED: case RETURN: case THROW: case BREAK:
@@ -1566,8 +1726,10 @@ public class JavacParser implements Parser {
                 if (S.token() == INTERFACE ||
                     S.token() == CLASS ||
                     allowEnums && S.token() == ENUM) {
+                    // 解析块中的类型
                     stats.append(classOrInterfaceOrEnumDeclaration(mods, dc));
                 } else {
+                    // 解析块中的变量
                     JCExpression t = parseType();
                     stats.appendList(variableDeclarators(mods, t,
                                                          new ListBuffer<JCStatement>()));
@@ -1578,6 +1740,7 @@ public class JavacParser implements Parser {
                 break;
             }
             case ABSTRACT: case STRICTFP: {
+                // 解析块中的类型
                 String dc = S.docComment();
                 JCModifiers mods = modifiersOpt();
                 stats.append(classOrInterfaceOrEnumDeclaration(mods, dc));
@@ -1585,11 +1748,13 @@ public class JavacParser implements Parser {
             }
             case INTERFACE:
             case CLASS:
+                // 解析块中的类型
                 stats.append(classOrInterfaceOrEnumDeclaration(modifiersOpt(),
                                                                S.docComment()));
                 break;
             case ENUM:
             case ASSERT:
+                // 解析块中的枚举
                 if (allowEnums && S.token() == ENUM) {
                     error(S.pos(), "local.enum");
                     stats.
@@ -1597,6 +1762,7 @@ public class JavacParser implements Parser {
                                                                  S.docComment()));
                     break;
                 } else if (allowAsserts && S.token() == ASSERT) {
+                    // 解析块中的断言
                     stats.append(parseStatement());
                     break;
                 }
@@ -1605,6 +1771,7 @@ public class JavacParser implements Parser {
                 Name name = S.name();
                 JCExpression t = term(EXPR | TYPE);
                 if (S.token() == COLON && t.getTag() == JCTree.IDENT) {
+                    // 解释有标记的语句
                     S.nextToken();
                     JCStatement stat = parseStatement();
                     stats.append(F.at(pos).Labelled(name, stat));
@@ -1612,6 +1779,7 @@ public class JavacParser implements Parser {
                            (S.token() == IDENTIFIER ||
                             S.token() == ASSERT ||
                             S.token() == ENUM)) {
+                    // 解释变量
                     pos = S.pos();
                     JCModifiers mods = F.at(Position.NOPOS).Modifiers(0);
                     F.at(pos);
@@ -1621,6 +1789,7 @@ public class JavacParser implements Parser {
                     storeEnd(stats.elems.last(), S.endPos());
                     accept(SEMI);
                 } else {
+                    // 解释语句
                     // This Exec is an "ExpressionStatement"; it subsumes the terminating semicolon
                     stats.append(to(F.at(pos).Exec(checkExprStat(t))));
                     accept(SEMI);
@@ -1661,12 +1830,19 @@ public class JavacParser implements Parser {
      *     | Ident ":" Statement
      */
     @SuppressWarnings("fallthrough")
+    // 解析语句
+    // 只有blockStatements()方法才会调用parseStatement()方法，
+    // 因此在分析BlockStatement时，
+    // 首先在blockStatements()方法中处理，
+    // 之后调用parseStatement()方法辅助处理
     public JCStatement parseStatement() {
         int pos = S.pos();
         switch (S.token()) {
         case LBRACE:
+            // 解析块
             return block();
         case IF: {
+            // 解析if
             S.nextToken();
             JCExpression cond = parExpression();
             JCStatement thenpart = parseStatement();
@@ -1678,6 +1854,7 @@ public class JavacParser implements Parser {
             return F.at(pos).If(cond, thenpart, elsepart);
         }
         case FOR: {
+            // 解析for
             S.nextToken();
             accept(LPAREN);
             List<JCStatement> inits = S.token() == SEMI ? List.<JCStatement>nil() : forInit();
@@ -1703,12 +1880,14 @@ public class JavacParser implements Parser {
             }
         }
         case WHILE: {
+            // 解析while
             S.nextToken();
             JCExpression cond = parExpression();
             JCStatement body = parseStatement();
             return F.at(pos).WhileLoop(cond, body);
         }
         case DO: {
+            // 解析do-while
             S.nextToken();
             JCStatement body = parseStatement();
             accept(WHILE);
@@ -1718,6 +1897,7 @@ public class JavacParser implements Parser {
             return t;
         }
         case TRY: {
+            // 解析try
             S.nextToken();
             List<JCTree> resources = List.<JCTree>nil();
             if (S.token() == LPAREN) {
@@ -1745,6 +1925,7 @@ public class JavacParser implements Parser {
             return F.at(pos).Try(resources, body, catchers.toList(), finalizer);
         }
         case SWITCH: {
+            // 解析switch
             S.nextToken();
             JCExpression selector = parExpression();
             accept(LBRACE);
@@ -1754,12 +1935,14 @@ public class JavacParser implements Parser {
             return t;
         }
         case SYNCHRONIZED: {
+            // 解析同步块
             S.nextToken();
             JCExpression lock = parExpression();
             JCBlock body = block();
             return F.at(pos).Synchronized(lock, body);
         }
         case RETURN: {
+            // 解析return
             S.nextToken();
             JCExpression result = S.token() == SEMI ? null : parseExpression();
             JCReturn t = to(F.at(pos).Return(result));
@@ -1767,6 +1950,7 @@ public class JavacParser implements Parser {
             return t;
         }
         case THROW: {
+            // 解析throw
             S.nextToken();
             JCExpression exc = parseExpression();
             JCThrow t = to(F.at(pos).Throw(exc));
@@ -1774,6 +1958,7 @@ public class JavacParser implements Parser {
             return t;
         }
         case BREAK: {
+            // 解析break
             S.nextToken();
             Name label = (S.token() == IDENTIFIER || S.token() == ASSERT || S.token() == ENUM) ? ident() : null;
             JCBreak t = to(F.at(pos).Break(label));
@@ -1781,6 +1966,7 @@ public class JavacParser implements Parser {
             return t;
         }
         case CONTINUE: {
+            // 解析continue
             S.nextToken();
             Name label = (S.token() == IDENTIFIER || S.token() == ASSERT || S.token() == ENUM) ? ident() : null;
             JCContinue t =  to(F.at(pos).Continue(label));
@@ -1788,14 +1974,17 @@ public class JavacParser implements Parser {
             return t;
         }
         case SEMI:
+            // 解析仅有一个分号的语句
             S.nextToken();
             return toP(F.at(pos).Skip());
+        // 如下3个case分支对错误进行兼容处理
         case ELSE:
             return toP(F.Exec(syntaxError("else.without.if")));
         case FINALLY:
             return toP(F.Exec(syntaxError("finally.without.try")));
         case CATCH:
             return toP(F.Exec(syntaxError("catch.without.try")));
+            // 解析assert语句
         case ASSERT: {
             if (allowAsserts && S.token() == ASSERT) {
                 S.nextToken();
@@ -1813,6 +2002,7 @@ public class JavacParser implements Parser {
         }
         case ENUM:
         default:
+            // 解释剩下可能出现的语句，含有标记的语句
             Name name = S.name();
             JCExpression expr = parseExpression();
             if (S.token() == COLON && expr.getTag() == JCTree.IDENT) {
@@ -2219,9 +2409,10 @@ public class JavacParser implements Parser {
         String dc = S.docComment();
         JCModifiers mods = null;
         List<JCAnnotation> packageAnnotations = List.nil();
+        // 解析包上的注解
         if (S.token() == MONKEYS_AT)
             mods = modifiersOpt();
-
+        // 解析包
         if (S.token() == PACKAGE) {
             if (mods != null) {
                 checkNoMods(mods.flags);
@@ -2229,11 +2420,16 @@ public class JavacParser implements Parser {
                 mods = null;
             }
             S.nextToken();
+            // 解析包名
             pid = qualident();
+            // 调用accept()方法处理SEMI，也就是包声明后的分号，这样包声明就处理完了
             accept(SEMI);
         }
         ListBuffer<JCTree> defs = new ListBuffer<JCTree>();
         boolean checkForImports = true;
+        // 处理ImportDeclaration和TypeDeclaration
+        // 处理导入声明和类声明
+        // 出现结束符跳出循环
         while (S.token() != EOF) {
             if (S.pos() <= errorEndPos) {
                 // error recovery
@@ -2242,8 +2438,10 @@ public class JavacParser implements Parser {
                     break;
             }
             if (checkForImports && mods == null && S.token() == IMPORT) {
+                // 解析导入声明
                 defs.append(importDeclaration());
             } else {
+                // 解析类声明
                 JCTree def = typeDeclaration(mods);
                 if (keepDocComments && dc != null && docComments.get(def) == dc) {
                     // If the first type declaration has consumed the first doc
@@ -2271,10 +2469,12 @@ public class JavacParser implements Parser {
 
     /** ImportDeclaration = IMPORT [ STATIC ] Ident { "." Ident } [ "." "*" ] ";"
      */
+    // 导入声明处理
     JCTree importDeclaration() {
         int pos = S.pos();
         S.nextToken();
         boolean importStatic = false;
+        // 解析静态导入
         if (S.token() == STATIC) {
             checkStaticImports();
             importStatic = true;
@@ -2299,6 +2499,7 @@ public class JavacParser implements Parser {
     /** TypeDeclaration = ClassOrInterfaceOrEnumDeclaration
      *                  | ";"
      */
+    // 解析类声明
     JCTree typeDeclaration(JCModifiers mods) {
         int pos = S.pos();
         if (mods == null && S.token() == SEMI) {
@@ -2306,6 +2507,7 @@ public class JavacParser implements Parser {
             return toP(F.at(pos).Skip());
         } else {
             String dc = S.docComment();
+            // 解析类和接口
             return classOrInterfaceOrEnumDeclaration(modifiersOpt(mods), dc);
         }
     }
@@ -2316,10 +2518,13 @@ public class JavacParser implements Parser {
      *  @param dc       The documentation comment for the class, or null.
      */
     JCStatement classOrInterfaceOrEnumDeclaration(JCModifiers mods, String dc) {
+        // 解析类
         if (S.token() == CLASS) {
             return classDeclaration(mods, dc);
+            // 解析接口
         } else if (S.token() == INTERFACE) {
             return interfaceDeclaration(mods, dc);
+            // 解析枚举类
         } else if (allowEnums) {
             if (S.token() == ENUM) {
                 return enumDeclaration(mods, dc);
@@ -2362,21 +2567,27 @@ public class JavacParser implements Parser {
     JCClassDecl classDeclaration(JCModifiers mods, String dc) {
         int pos = S.pos();
         accept(CLASS);
+        // 解析类名
         Name name = ident();
-
+        // 解析类型参数
         List<JCTypeParameter> typarams = typeParametersOpt();
 
         JCExpression extending = null;
+        // 解析父类
         if (S.token() == EXTENDS) {
             S.nextToken();
+            // 解析父类
             extending = parseType();
         }
         List<JCExpression> implementing = List.nil();
+        // 解析实现的接口
         if (S.token() == IMPLEMENTS) {
             S.nextToken();
             implementing = typeList();
         }
+        // 解析类的body体
         List<JCTree> defs = classOrInterfaceBody(name, false);
+        // 创建类声明对象，并返回
         JCClassDecl result = toP(F.at(pos).ClassDef(
             mods, name, typarams, extending, implementing, defs));
         attach(result, dc);
@@ -2517,7 +2728,9 @@ public class JavacParser implements Parser {
 
     /** ClassBody     = "{" {ClassBodyDeclaration} "}"
      *  InterfaceBody = "{" {InterfaceBodyDeclaration} "}"
+     *  外层花括号表示终结符，内层花括号表示出现一次或多次
      */
+    // isInterface区分是ClassBody还是InterfaceBody
     List<JCTree> classOrInterfaceBody(Name className, boolean isInterface) {
         accept(LBRACE);
         if (S.pos() <= errorEndPos) {
@@ -2527,6 +2740,7 @@ public class JavacParser implements Parser {
                 S.nextToken();
         }
         ListBuffer<JCTree> defs = new ListBuffer<JCTree>();
+        // 解释类型的body体
         while (S.token() != RBRACE && S.token() != EOF) {
             defs.appendList(classOrInterfaceBodyDeclaration(className, isInterface));
             if (S.pos() <= errorEndPos) {
@@ -2555,6 +2769,7 @@ public class JavacParser implements Parser {
      *    | ModifiersOpt Type Ident
      *      ( ConstantDeclaratorsRest | InterfaceMethodDeclaratorRest ";" )
      */
+    // 对类或接口的成员进行解析
     List<JCTree> classOrInterfaceBodyDeclaration(Name className, boolean isInterface) {
         if (S.token() == SEMI) {
             S.nextToken();
@@ -2566,12 +2781,15 @@ public class JavacParser implements Parser {
             if (S.token() == CLASS ||
                 S.token() == INTERFACE ||
                 allowEnums && S.token() == ENUM) {
+                // 解析成员类型
                 return List.<JCTree>of(classOrInterfaceOrEnumDeclaration(mods, dc));
             } else if (S.token() == LBRACE && !isInterface &&
                        (mods.flags & Flags.StandardFlags & ~Flags.STATIC) == 0 &&
                        mods.annotations.isEmpty()) {
+                // 解析匿名块
                 return List.<JCTree>of(block(pos, mods.flags));
             } else {
+                // 解析成员变量或成员方法
                 pos = S.pos();
                 List<JCTypeParameter> typarams = typeParametersOpt();
                 // if there are type parameters but no modifiers, save the start
@@ -2634,6 +2852,7 @@ public class JavacParser implements Parser {
      *  ConstructorDeclaratorRest =
      *      "(" FormalParameterListOpt ")" [THROWS TypeList] MethodBody
      */
+    // 解析方法
     JCTree methodDeclaratorRest(int pos,
                               JCModifiers mods,
                               JCExpression type,
@@ -2641,15 +2860,18 @@ public class JavacParser implements Parser {
                               List<JCTypeParameter> typarams,
                               boolean isInterface, boolean isVoid,
                               String dc) {
+        // 解析方法中的形式参数
         List<JCVariableDecl> params = formalParameters();
         if (!isVoid) type = bracketsOpt(type);
         List<JCExpression> thrown = List.nil();
+        // 解析方法中抛出的异常
         if (S.token() == THROWS) {
             S.nextToken();
             thrown = qualidentList();
         }
         JCBlock body = null;
         JCExpression defaultValue;
+        // 解释方法的body体
         if (S.token() == LBRACE) {
             body = block();
             defaultValue = null;
@@ -2664,6 +2886,7 @@ public class JavacParser implements Parser {
             if (S.pos() <= errorEndPos) {
                 // error recovery
                 skip(false, true, false, false);
+                // 解释方法的body体
                 if (S.token() == LBRACE) {
                     body = block();
                 }
@@ -2692,12 +2915,14 @@ public class JavacParser implements Parser {
 
     /** TypeParametersOpt = ["<" TypeParameter {"," TypeParameter} ">"]
      */
+    // 解析类型参数
     List<JCTypeParameter> typeParametersOpt() {
         if (S.token() == LT) {
             checkGenerics();
             ListBuffer<JCTypeParameter> typarams = new ListBuffer<JCTypeParameter>();
             S.nextToken();
             typarams.append(typeParameter());
+            // 循环对多个形式类型参数进行解析
             while (S.token() == COMMA) {
                 S.nextToken();
                 typarams.append(typeParameter());
@@ -2713,10 +2938,12 @@ public class JavacParser implements Parser {
      *  TypeParameterBound = EXTENDS Type {"&" Type}
      *  TypeVariable = Ident
      */
+    // 类型参数解析
     JCTypeParameter typeParameter() {
         int pos = S.pos();
         Name name = ident();
         ListBuffer<JCExpression> bounds = new ListBuffer<JCExpression>();
+        // 解释类型参数中声明上界
         if (S.token() == EXTENDS) {
             S.nextToken();
             bounds.append(parseType());
@@ -2803,7 +3030,11 @@ public class JavacParser implements Parser {
      *  -1 if token is not a binary operator. @see TreeInfo.opPrec
      */
     static int prec(Token token) {
+        // 调用optag()方法将Token对象对应的运算符映射为JCTree类中对应的运算符定义
         int oc = optag(token);
+        // 当oc大于等于0时，表示确实是一个可识别的二元运算符
+        // 调用TreeInfo类的opPrec()方法获取除赋值运算符以外所有二元运算符的优先级
+        // 其中优先级的数值越大则表示优先级越高
         return (oc >= 0) ? TreeInfo.opPrec(oc) : -1;
     }
 
@@ -2894,6 +3125,8 @@ public class JavacParser implements Parser {
     /** Return operation tag of unary operator represented by token,
      *  -1 if token is not a binary operator.
      */
+    // 将Token对象映射为JCTree类中定义的代表一元运算符的常量
+    // 如果Token对象没有对应的一元运算符常量，则返回-1
     static int unoptag(Token token) {
         switch (token) {
         case PLUS:

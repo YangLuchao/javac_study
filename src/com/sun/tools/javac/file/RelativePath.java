@@ -58,6 +58,10 @@ public abstract class RelativePath implements Comparable<RelativePath> {
         return new File(directory, path.replace('/', File.separatorChar));
     }
 
+    /*
+    path是具体路径
+    排序后，就可以根据二分法进行快速查找
+     */
     public int compareTo(RelativePath other) {
         return path.compareTo(other.path);
     }
@@ -91,6 +95,7 @@ public abstract class RelativePath implements Comparable<RelativePath> {
      * Internally, the file separator is always '/', and if the path is not empty,
      * it always ends in a '/' as well.
      */
+    // 相对路径对象
     public static class RelativeDirectory extends RelativePath {
 
         static RelativeDirectory forPackage(CharSequence packageName) {

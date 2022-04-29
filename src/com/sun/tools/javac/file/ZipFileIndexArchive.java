@@ -51,8 +51,11 @@ import com.sun.tools.javac.util.List;
  * This code and its internal interfaces are subject to change or
  * deletion without notice.</b>
  */
+// 每一个压缩包都是一个ZipFileIndexArchive对象
+    // 默认操作所有压缩包
 public class ZipFileIndexArchive implements Archive {
 
+    // 具体的压缩包对象
     private final ZipFileIndex zfIndex;
     private JavacFileManager fileManager;
 

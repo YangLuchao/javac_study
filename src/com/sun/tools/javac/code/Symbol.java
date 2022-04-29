@@ -25,20 +25,21 @@
 
 package com.sun.tools.javac.code;
 
-import java.util.Set;
-import java.util.concurrent.Callable;
-import javax.lang.model.element.*;
-import javax.tools.JavaFileObject;
-
-import com.sun.tools.javac.util.*;
-import com.sun.tools.javac.util.Name;
 import com.sun.tools.javac.code.Type.*;
 import com.sun.tools.javac.comp.Attr;
 import com.sun.tools.javac.comp.AttrContext;
 import com.sun.tools.javac.comp.Env;
-import com.sun.tools.javac.jvm.*;
-import com.sun.tools.javac.model.*;
+import com.sun.tools.javac.jvm.Code;
+import com.sun.tools.javac.jvm.Pool;
+import com.sun.tools.javac.model.JavacElements;
 import com.sun.tools.javac.tree.JCTree;
+import com.sun.tools.javac.util.Name;
+import com.sun.tools.javac.util.*;
+
+import javax.lang.model.element.*;
+import javax.tools.JavaFileObject;
+import java.util.Set;
+import java.util.concurrent.Callable;
 
 import static com.sun.tools.javac.code.Flags.*;
 import static com.sun.tools.javac.code.Kinds.*;
@@ -54,16 +55,19 @@ import static com.sun.tools.javac.code.TypeTags.*;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// Symbol类是所有符号相关类的父类，而继承Symbol类的子类都是定义在Symbol类中的静态类
 public abstract class Symbol implements Element {
     // public Throwable debug = new Throwable();
 
     /** The kind of this symbol.
      *  @see Kinds
      */
+    // kind为保存符号的具体类型；
     public int kind;
 
     /** The flags of this symbol.
      */
+    // flags_field为保存符号的修饰符；
     public long flags_field;
 
     /** An accessor method for the flags of this symbol.
@@ -93,18 +97,23 @@ public abstract class Symbol implements Element {
 
     /** The name of this symbol in Utf8 representation.
      */
+    // name用来保存符号名称，通常就是在声明或定义时指定的唯一标识符；
     public Name name;
 
     /** The type of this symbol.
      */
+    // type用来保存类型
     public Type type;
 
     /** The owner of this symbol.
      */
+    // owner为保存当前符号所属的符号，也就是在owner中定义了当前的符号
+    // owner会使符号之间形成嵌套结构，它在符号表的组织及后续语义分析等各个阶段都起着重要的作用
     public Symbol owner;
 
     /** The completer of this symbol.
      */
+    // completer与符号表的输入密切相关
     public Completer completer;
 
     /** A cache for the type erasure of this symbol.
@@ -318,11 +327,20 @@ public abstract class Symbol implements Element {
     /** Fully check membership: hierarchy, protection, and hiding.
      *  Does not exclude methods not inherited due to overriding.
      */
+    // isMemberOf()方法判断当前的符号是否为clazz的成员
     public boolean isMemberOf(TypeSymbol clazz, Types types) {
         return
+            // 1:如果owner与clazz相同，也就是当前的符号是在clazz中定义的，那么当然是clazz的一个成员
             owner == clazz ||
+            // 2:如果owner与clazz不相同，那么当前符号要成为clazz的一个成员的话，
+            //  1:需要保证clazz为owner的子类型、
+            //  2:clazz可以继承到当前的成员符号，
+            //  3:以及当前符号没有在clazz中被隐藏
+            // sSubClass()方法判断clazz是否为owner的一个子类型
             clazz.isSubClass(owner, types) &&
+            // 判断当前的符号是否可以被clazz继承
             isInheritedIn(clazz, types) &&
+            // 当前符号是否隐藏
             !hiddenIn((ClassSymbol)clazz, types);
     }
 
@@ -335,8 +353,12 @@ public abstract class Symbol implements Element {
 
     /** Check for hiding.  Note that this doesn't handle multiple
      *  (interface) inheritance. */
+    // 当前方法是否隐藏(静态方法只能被继承，不能被重写，所以子类定义和父类一样的静态方法，就会把父类的静态方法隐藏掉)
+    // 隐藏可以针对成员变量、方法与成员类
     private boolean hiddenIn(ClassSymbol clazz, Types types) {
-        if (kind == MTH && (flags() & STATIC) == 0) return false;
+        // 当前方法为实例方法,实例方法没有隐藏的概念
+        if (kind == MTH && (flags() & STATIC) == 0)
+            return false;
         while (true) {
             if (owner == clazz) return false;
             Scope.Entry e = clazz.members().lookup(name);
@@ -362,17 +384,26 @@ public abstract class Symbol implements Element {
      *  @param clazz  The class for which we want to establish membership.
      *                This must be a subclass of the member's owner.
      */
+    // 判断当前的符号是否可以被clazz继承
+    // 调用isInheritedIn()方法的前提是，已经确定定义当前符号的类型是clazz的父类型
     public boolean isInheritedIn(Symbol clazz, Types types) {
         switch ((int)(flags_field & Flags.AccessFlags)) {
         default: // error recovery
         case PUBLIC:
+            // 当前的符号有public修饰时，public成员肯定能被子类所继承
             return true;
         case PRIVATE:
+            // 当前的符号有private修饰时，
+            // 只有定义当前符号的类型为clazz时才会返回true，因为private成员不可以被子类继承
             return this.owner == clazz;
         case PROTECTED:
-            // we model interfaces as extending Object
+            // 当前的符号有protected修饰时，由于子类可以继承父类中的protected成员，
+            // 所以当子类型clazz为非接口时可以继承
             return (clazz.flags() & INTERFACE) == 0;
         case 0:
+            // 前的符号没有访问控制符修饰时，
+            // 从clazz到owner这一条继承路径上涉及的所有类型都必须与owner所在的包相同，
+            // 同时当clazz为接口时也不继承当前的成员符号
             PackageSymbol thisPackage = this.packge();
             for (Symbol sup = clazz;
                  sup != null && sup != this.owner;
@@ -413,10 +444,15 @@ public abstract class Symbol implements Element {
 
     /** Complete the elaboration of this symbol's definition.
      */
+    // 完成ClassSymbol或PackageSymbol对象中members_field的填充
     public void complete() throws CompletionFailure {
         if (completer != null) {
             Completer c = completer;
+            // 将completer的值设置为空，
+            // 这样下次调用时就不会重复调用complete()方法加载当符号下定义的成员符号了
             completer = null;
+            // 并传递当前符号作为调用方法的参数
+            // 调用这个方法可以完成ClassSymbol或PackageSymbol对象中members_field的填充
             c.complete(this);
         }
     }
@@ -508,6 +544,10 @@ public abstract class Symbol implements Element {
     /** A class for type symbols. Type variables are represented by instances
      *  of this class, classes and packages by instances of subclasses.
      */
+    // TypeSymbol类主要用来表示类型变量，类型变量也可看作是一类特殊的类
+    // <T extends CA & IA> void test(T t) { }
+    // 方法上声明的类型变量T可以等价看作声明了一个如下的类型
+    // class T extends CA implements IA { }
     public static class TypeSymbol
             extends Symbol implements TypeParameterElement {
         // Implements TypeParameterElement because type parameters don't
@@ -520,12 +560,22 @@ public abstract class Symbol implements Element {
 
         /** form a fully qualified name from a name and an owner
          */
+        // name就是当前符号的名称，而owner就是当前符号所属的符号
+        //
         static public Name formFullName(Name name, Symbol owner) {
             if (owner == null) return name;
+            // 如果当前符号为ClassSymbol对象且owner为VarSymbol或MethodSymbol对象时，
+            // 表示的是本地类或匿名类符号，直接返回name即可
+            /*
+            (owner.kind==TYP && owner.type.tag==TYPEVAR)
+            当表达式的值为true时，owner值只能为TypeSymbol对象，
+            也就是当为类型变量时，也直接返回name的值
+             */
             if (((owner.kind != ERR)) &&
                 ((owner.kind & (VAR | MTH)) != 0
                  || (owner.kind == TYP && owner.type.tag == TYPEVAR)
                  )) return name;
+            // 当逻辑执行到这里时，owner值的类型一定为ClassSymbol或PackageSymbol
             Name prefix = owner.getQualifiedName();
             if (prefix == null || prefix == prefix.table.names.empty)
                 return name;
@@ -535,12 +585,19 @@ public abstract class Symbol implements Element {
         /** form a fully qualified name from a name and an owner, after
          *  converting to flat representation
          */
+        // formFlatName()方法的实现与formFullName()方法的实现非常类似，
+        // 当为顶层类、本地类、匿名类或类型变量时，直接返回name。
+        // 当owner为ClassSymbol对象时使用$分割符，也就说明当前类是嵌套类而非顶层类。
         static public Name formFlatName(Name name, Symbol owner) {
             if (owner == null ||
                 (owner.kind & (VAR | MTH)) != 0
                 || (owner.kind == TYP && owner.type.tag == TYPEVAR)
                 ) return name;
             char sep = owner.kind == TYP ? '$' : '.';
+            // 在调用owner.flatName()方法时，
+            // owner值的类型一定为ClassSymbol或者PackageSymbol，
+            // 对于ClassSymbol来说，flatName()方法返回flatname，
+            // 对于PackageSymbol来说，flatName()方法返回fullname
             Name prefix = owner.flatName();
             if (prefix == null || prefix == prefix.table.names.empty)
                 return name;
@@ -551,21 +608,29 @@ public abstract class Symbol implements Element {
          * A total ordering between type symbols that refines the
          * class inheritance graph.
          *
-         * Typevariables always precede other kinds of symbols.
+         * Type variables always precede other kinds of symbols.
          */
+        // 细化类继承图的类型符号之间的总排序。
+        // 类型变量总是在其他种类的符号之前。
+        // 类型变量优先级高
+        // 只有当cl1.head.tsym等于cl2.head.tsym或者cl1.head.tsym
+        // 与cl2.head.tsym是没有父子关系的类型变量时，方法才会返回false
         public final boolean precedes(TypeSymbol that, Types types) {
             if (this == that)
                 return false;
             if (this.type.tag == that.type.tag) {
+                // this与that同时为类或接口
                 if (this.type.tag == CLASS) {
                     return
                         types.rank(that.type) < types.rank(this.type) ||
                         types.rank(that.type) == types.rank(this.type) &&
                         that.getQualifiedName().compareTo(this.getQualifiedName()) < 0;
                 } else if (this.type.tag == TYPEVAR) {
+                    // this与that同时为类型变量
                     return types.isSubtype(this.type, that.type);
                 }
             }
+            // this为类型变量而that不为类型变量
             return this.type.tag == TYPEVAR;
         }
 
@@ -621,10 +686,13 @@ public abstract class Symbol implements Element {
 
     /** A class for package symbols
      */
+    // 定义包符号
     public static class PackageSymbol extends TypeSymbol
         implements PackageElement {
 
+        // 成员变量
         public Scope members_field;
+        // fullname变量保存包的全限定名
         public Name fullname;
         public ClassSymbol package_info; // see bug 6443073
 
@@ -652,8 +720,10 @@ public abstract class Symbol implements Element {
             return name.isEmpty() && owner != null;
         }
 
+        // 完成符号输入
         public Scope members() {
-            if (completer != null) complete();
+            if (completer != null)
+                complete();
             return members_field;
         }
 
@@ -698,22 +768,28 @@ public abstract class Symbol implements Element {
 
     /** A class for class symbols
      */
+    // 定义类符号
     public static class ClassSymbol extends TypeSymbol implements TypeElement {
 
         /** a scope for all class members; variables, methods and inner classes
          *  type parameters are not part of this scope
          */
+        // 成员变量
         public Scope members_field;
 
         /** the fully qualified name of the class, i.e. pck.outer.inner.
          *  null for anonymous classes
          */
+        // 类的全限定名
+        // i.e. pck.outer.inner
         public Name fullname;
 
         /** the fully qualified name of the class after converting to flat
          *  representation, i.e. pck.outer$inner,
          *  set externally for local and anonymous classes
          */
+        // 类的全限定名
+        // i.e. pck.outer$inner
         public Name flatname;
 
         /** the sourcefile where the class came from
@@ -754,13 +830,19 @@ public abstract class Symbol implements Element {
             return className();
         }
 
+        // 将当前符号下的成员符号填充到当前符号的members_field中
         public long flags() {
-            if (completer != null) complete();
+            if (completer != null)
+                // 间接调用Symbol类中的complete()方法
+                complete();
             return flags_field;
         }
 
+        // 将当前符号下的成员符号填充到当前符号的members_field中
         public Scope members() {
-            if (completer != null) complete();
+            if (completer != null)
+                // 间接调用Symbol类中的complete()方法
+                complete();
             return members_field;
         }
 
@@ -792,16 +874,20 @@ public abstract class Symbol implements Element {
             return flatname;
         }
 
+        // sSubClass()方法判断clazz是否为owner的一个子类型
         public boolean isSubClass(Symbol base, Types types) {
             if (this == base) {
                 return true;
             } else if ((base.flags() & INTERFACE) != 0) {
+                // 当base为接口时，查找当前类型的所有实现接口，
+                // 如果当前类型的某个实现接口是base的子类型，那么当前类型是base的子类型
                 for (Type t = type; t.tag == CLASS; t = types.supertype(t))
                     for (List<Type> is = types.interfaces(t);
                          is.nonEmpty();
                          is = is.tail)
                         if (is.head.tsym.isSubClass(base, types)) return true;
             } else {
+                // 当base为类时，查找当前类型的所有父类，如果某个父类与base相同，那么当前类型是base的子类型
                 for (Type t = type; t.tag == CLASS; t = types.supertype(t))
                     if (t.tsym == base) return true;
             }
@@ -835,6 +921,7 @@ public abstract class Symbol implements Element {
             }
         }
 
+        // 获取父类
         public Type getSuperclass() {
             complete();
             if (type instanceof ClassType) {
@@ -894,6 +981,8 @@ public abstract class Symbol implements Element {
 
     /** A class for variable symbols
      */
+    // 定义变量的符号
+    // 每个变量都有一个唯一的VarSymbol对象
     public static class VarSymbol extends Symbol implements VariableElement {
 
         /** The variable's declaration position.
@@ -909,6 +998,10 @@ public abstract class Symbol implements Element {
          *  Code generation:
          *    If this is a local variable, its logical slot number.
          */
+        // adr在数据流分析、语法糖去除与代码生成阶段代表了不同的含义
+        // 数据流分析：
+        // 语法糖去除：
+        // 代码生成：
         public int adr = -1;
 
         /** Construct a variable symbol, given its flags, name, type and owner.
@@ -936,20 +1029,28 @@ public abstract class Symbol implements Element {
             return new VarSymbol(flags_field, name, types.memberType(site, this), owner);
         }
 
+        // 获取类型
         public ElementKind getKind() {
             long flags = flags();
+            // 形参
             if ((flags & PARAMETER) != 0) {
                 if (isExceptionParameter())
+                    // 异常参数
                     return ElementKind.EXCEPTION_PARAMETER;
                 else
+                    // 形参
                     return ElementKind.PARAMETER;
+                // 枚举
             } else if ((flags & ENUM) != 0) {
+                // 枚举常量
                 return ElementKind.ENUM_CONSTANT;
             } else if (owner.kind == TYP || owner.kind == ERR) {
+                // 成员变量
                 return ElementKind.FIELD;
             } else if (isResourceVariable()) {
                 return ElementKind.RESOURCE_VARIABLE;
             } else {
+                // 本地变量
                 return ElementKind.LOCAL_VARIABLE;
             }
         }
@@ -979,6 +1080,9 @@ public abstract class Symbol implements Element {
          * initalizer environment.  If this is not a constant, it can
          * be used for other stuff.
          */
+        // data存储常量数值，如果是变量，
+        // 则存储java.util.concurrent.Callable对象，
+        // 这样可以延迟处理变量初始化表达式
         private Object data;
 
         public boolean isExceptionParameter() {
@@ -1020,6 +1124,8 @@ public abstract class Symbol implements Element {
 
     /** A class for method symbols.
      */
+    // 定义方法的符号
+    // 任何方法，包括接口、抽象类或者注解中的方法都有一个唯一的MethodSymbol对象
     public static class MethodSymbol extends Symbol implements ExecutableElement {
 
         /** The code of the method. */
@@ -1106,6 +1212,7 @@ public abstract class Symbol implements Element {
         /** Will the erasure of this method be considered by the VM to
          *  override the erasure of the other when seen from class `origin'?
          */
+        // 泛型擦除时辅助判断是否需要添加桥方法
         public boolean binaryOverrides(Symbol _other, TypeSymbol origin, Types types) {
             if (isConstructor() || _other.kind != MTH) return false;
 
@@ -1131,6 +1238,7 @@ public abstract class Symbol implements Element {
          *  implementation in class.
          *  @param origin   The class of which the implementation is a member.
          */
+        // 泛型擦除时辅助判断是否需要添加桥方法
         public MethodSymbol binaryImplementation(ClassSymbol origin, Types types) {
             for (TypeSymbol c = origin; c != null; c = types.supertype(c.type).tsym) {
                 for (Scope.Entry e = c.members().lookup(name);
@@ -1153,6 +1261,7 @@ public abstract class Symbol implements Element {
          *
          *  See JLS 8.4.6.1 (without transitivity) and 8.4.6.4
          */
+        // 判断方法覆写的overrides()方法
         public boolean overrides(Symbol _other, TypeSymbol origin, Types types, boolean checkResult) {
             if (isConstructor() || _other.kind != MTH) return false;
 
@@ -1211,6 +1320,7 @@ public abstract class Symbol implements Element {
          *  null if none exists. Synthetic methods are not considered
          *  as possible implementations.
          */
+        // 查找方法实现的implementation()方法
         public MethodSymbol implementation(TypeSymbol origin, Types types, boolean checkResult) {
             return implementation(origin, types, checkResult, implementation_filter);
         }
@@ -1334,6 +1444,10 @@ public abstract class Symbol implements Element {
 
     /** A class for predefined operators.
      */
+    // 表示的是运算符符号，
+    // 任何在Java源代码中出现的运算符都有一个唯一的OperatorSymbol对象
+    // Javac将任何运算符的操作数看作调用方法传递的参数，将运算后的结果当作调用方法后的返回值。
+    // Javac在名称相同的情况下，根据操作数的类型来确定OperatorSymbol对象，使用相同名称的符号进行多种操作叫做运算符重载（Operator Overloading）
     public static class OperatorSymbol extends MethodSymbol {
 
         public int opcode;
@@ -1351,6 +1465,7 @@ public abstract class Symbol implements Element {
     /** Symbol completer interface.
      */
     public static interface Completer {
+        // 调用这个方法可以完成ClassSymbol或PackageSymbol对象中members_field的填充
         void complete(Symbol sym) throws CompletionFailure;
     }
 

@@ -34,6 +34,7 @@ package com.sun.tools.javac.code;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 类型的具体类型
 public class TypeTags {
 
     private TypeTags() {} // uninstantiable

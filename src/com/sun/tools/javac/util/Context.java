@@ -96,6 +96,8 @@ import java.util.*;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 一些重要类在此上下文中都有唯一的对象，也就是常说的单例
+    // Context类中定义了一个重要的成员变量ht
 public class Context {
     /** The client creates an instance of this class for each key.
      */
@@ -116,6 +118,8 @@ public class Context {
      * We maintain the invariant that this table contains only
      * mappings of the form
      * Key<T> -> T or Key<T> -> Factory<T> */
+    // key是空实现
+            // value存储的是T类型的对象，也可能是Factory<T>类型的工厂对象。
     private Map<Key<?>,Object> ht = new HashMap<Key<?>,Object>();
 
     /** Set the factory for the key in this context. */
@@ -139,6 +143,9 @@ public class Context {
     }
 
     /** Get the value for the key in this context. */
+    // 根据参数key从ht中获取value值o，然后判断值是否为工厂对象
+    // 如果是，就调用工厂方法获取T类型的对象，
+    // 最后调用uncheckedCast()方法将o的类型强制转换为T类型
     public <T> T get(Key<T> key) {
         checkState(ht);
         Object o = ht.get(key);

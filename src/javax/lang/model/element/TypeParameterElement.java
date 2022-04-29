@@ -40,6 +40,7 @@ import javax.lang.model.type.TypeVariable;
  * @see TypeVariable
  * @since 1.6
  */
+// 表示类、接口或方法中声明的泛型参数，因此TypeSymbol直接实现了这个接口。
 public interface TypeParameterElement extends Element {
 
     /**

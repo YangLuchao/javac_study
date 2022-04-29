@@ -26,12 +26,12 @@ public class TestCompiler {
     public static void main(String args[]) throws
             IOException {
         String path =
-                "/Users/yangluchao/projects/JavaComplier/src/ylcComplieTest/TestCompiler.java";
+                "/Users/yangluchao/Documents/GitHub/javac_study/src/ylcComplieTest/TestCompiler.java";
         javax.tools.JavaCompiler compiler =
                 ToolProvider.getSystemJavaCompiler();
         int result = compiler.run(null, null, null,
                 new String[]{
-                        "-d", "/Users/yangluchao/projects/JavaCompiler/save",
+                        "-d", "/Users/yangluchao/Documents/GitHub/javac_study/save",
                         path
                 }
         );

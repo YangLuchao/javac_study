@@ -56,6 +56,8 @@ package com.sun.source.tree;
  *
  * @since 1.6
  */
+// 访问者模式
+// 访问者
 public interface TreeVisitor<R,P> {
     R visitAnnotation(AnnotationTree node, P p);
     R visitMethodInvocation(MethodInvocationTree node, P p);

@@ -49,6 +49,7 @@ import javax.tools.JavaFileObject;
  * This code and its internal interfaces are subject to change or
  * deletion without notice.</b>
  */
+// java源文件对象
 class RegularFileObject extends BaseFileObject {
 
     /** Have the parent directories been created?
@@ -102,19 +103,29 @@ class RegularFileObject extends BaseFileObject {
         return new FileOutputStream(file);
     }
 
+    // 调用将文件内容读取到了CharBuffer对象
     @Override
     public CharBuffer getCharContent(boolean ignoreEncodingErrors) throws IOException {
+        // fileManager是JavacFileManager对象
+        // getCachedContent:获取当前文件所对应的字符缓冲对象cb
         CharBuffer cb = fileManager.getCachedContent(this);
+        // cb为空，可能是缓存失效或首次获取当前文件的字符缓冲对象
         if (cb == null) {
+            // 通过读取文件的方式初始化cb
             InputStream in = new FileInputStream(file);
             try {
+                // 将输入流中的内容缓存到ByteBuffer对象中
                 ByteBuffer bb = fileManager.makeByteBuffer(in);
                 JavaFileObject prev = fileManager.log.useSource(this);
                 try {
+                    // 根据文件不同的编码读取文件内容
                     cb = fileManager.decode(bb, ignoreEncodingErrors);
                 } finally {
                     fileManager.log.useSource(prev);
                 }
+                // 为了能够重用ByteBuffer对象
+                // 回收用完后的ByteBuffer对象，
+                // 这样在下次读取文件时就能重用这个对象
                 fileManager.recycleByteBuffer(bb);
                 if (!ignoreEncodingErrors) {
                     fileManager.cache(this, cb);
@@ -123,6 +134,7 @@ class RegularFileObject extends BaseFileObject {
                 in.close();
             }
         }
+        // 返回当前文件所对应的字符缓冲对象cb
         return cb;
     }
 

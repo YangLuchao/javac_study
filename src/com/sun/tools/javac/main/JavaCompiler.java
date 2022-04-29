@@ -565,9 +565,11 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
      *  Report an error if this fails.
      *  @param filename   The file name of the input stream to be opened.
      */
+    // 获取Java源文件的字符输入流
     public CharSequence readSource(JavaFileObject filename) {
         try {
             inputFiles.add(filename);
+            // RegularFileObject.getCharContent 返回字符流
             return filename.getCharContent(false);
         } catch (IOException e) {
             log.error("error.reading.file", filename, JavacFileManager.getMessage(e));
@@ -581,6 +583,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
      */
     protected JCCompilationUnit parse(JavaFileObject filename, CharSequence content) {
         long msec = now();
+        // 生成树节点
         JCCompilationUnit tree = make.TopLevel(List.<JCTree.JCAnnotation>nil(),
                                       null, List.<JCTree>nil());
         if (content != null) {
@@ -592,6 +595,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
                 taskListener.started(e);
             }
             Parser parser = parserFactory.newParser(content, keepComments(), genEndPos, lineDebugInfo);
+            // 据content创建一颗抽象语法树
             tree = parser.parseCompilationUnit();
             if (verbose) {
                 log.printVerbose("parsing.done", Long.toString(elapsed(msec)));
@@ -626,9 +630,11 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
     /** Parse contents of file.
      *  @param filename     The name of the file to be parsed.
      */
+    // 将文件转化为编译单元
     public JCTree.JCCompilationUnit parse(JavaFileObject filename) {
         JavaFileObject prev = log.useSource(filename);
         try {
+            // parse将字符输入流转换为Token流，然后将Token流转换为抽象语法树
             JCTree.JCCompilationUnit t = parse(filename, readSource(filename));
             if (t.endPositions != null)
                 log.setEndPosTable(filename, t.endPositions);
@@ -738,6 +744,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
         JavaFileObject prev = log.useSource(filename);
 
         try {
+            // 调用parse()方法进行词法处理后生成JCCompilationUnit对象
             tree = parse(filename, filename.getCharContent(false));
         } catch (IOException e) {
             log.error("error.reading.file", filename, JavacFileManager.getMessage(e));
@@ -750,7 +757,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
             TaskEvent e = new TaskEvent(TaskEvent.Kind.ENTER, tree);
             taskListener.started(e);
         }
-
+        // 调用Enter对象enter的complete()方法完成对依赖文件的处理
         enter.complete(List.of(tree), c);
 
         if (taskListener != null) {
@@ -798,6 +805,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
      * @param processors user provided annotation processors to bypass
      * discovery, {@code null} means that no processors were provided
      */
+    // 当前正在编译的Java源文件来说，会直接调用JavaCompiler类的compile()方法
     public void compile(List<JavaFileObject> sourceFileObjects,
                         List<String> classnames,
                         Iterable<? extends Processor> processors)
@@ -818,11 +826,18 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
         start_msec = now();
 
         try {
+            // 初始化注解处理器
             initProcessAnnotations(processors);
 
-            // These method calls must be chained to avoid memory leaks
+            // These method calls must be chained to avoid memory leaks:必须链接这些方法调用以避免内存泄漏
+            // 调用parseFiles()方法得到List<JCCompilationUnit>对象
+            // 调用enterTrees()方法完成符号的输入
             delegateCompiler =
                 processAnnotations(
+                        // 不过在运行注解处理器之前还会调用enterTrees()方法，
+                        // 这个方法会完成符号输入的第一与第二阶段，
+                        // 同时也会对声明及定义的语法树节点进行标注，
+                        // 因此才能在后续的注解处理器运行阶段操作TypeMirror与Element
                     enterTrees(stopIfError(CompileState.PARSE, parseFiles(sourceFileObjects))),
                     classnames);
 
@@ -983,12 +998,12 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
      * @param processors user provided annotation processors to bypass
      * discovery, {@code null} means that no processors were provided
      */
+    // 初始化注解处理器
     public void initProcessAnnotations(Iterable<? extends Processor> processors) {
-        // Process annotations if processing is not disabled and there
-        // is at least one Processor available.
         if (options.isSet(PROC, "none")) {
             processAnnotations = false;
         } else if (procEnvImpl == null) {
+            // 初始化注解构造器
             procEnvImpl = new JavacProcessingEnvironment(context, processors);
             processAnnotations = procEnvImpl.atLeastOneProcessor();
 
@@ -1022,6 +1037,12 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
     // By the time this method exits, log.deferDiagnostics must be set back to false,
     // and all deferredDiagnostics must have been handled: i.e. either reported
     // or determined to be transient, and therefore suppressed.
+    /*
+    实现说明：调用此方法时，log.deferredDiagnostics 将由 initProcessAnnotations
+    设置为 true，这意味着报告的任何诊断都将进入 log.deferredDiagnostics 队列。
+    到此方法退出时，log.deferDiagnostics 必须设置回 false，
+    并且所有 deferredDiagnostics 必须已处理：即报告或确定为瞬态，因此被抑制。
+     */
     public JavaCompiler processAnnotations(List<JCCompilationUnit> roots,
                                            List<String> classnames) {
         if (shouldStop(CompileState.PROCESS)) {
@@ -1029,6 +1050,8 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
             // Unless all the errors are resolve errors, the errors were parse errors
             // or other errors during enter which cannot be fixed by running
             // any annotation processors.
+            // 遇到错误。除非所有错误都是解析错误，否则错误是解析错误或输入期间的其他错误，
+            // 这些错误无法通过运行任何注释处理器来修复。
             if (unrecoverableError()) {
                 log.reportDeferredDiagnostics();
                 return this;
@@ -1044,6 +1067,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
             // If there are no annotation processors present, and
             // annotation processing is to occur with compilation,
             // emit a warning.
+            // 如果不存在注释处理器，并且注释处理将随着编译发生，则发出警告。
             if (options.isSet(PROC, "only")) {
                 log.warning("proc.proc-only.requested.no.procs");
                 todo.clear();
@@ -1102,7 +1126,11 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
                     }
                 }
             }
+            // 在这之前会判断是否有必要调用JavacProcessingEnvironment类的doProcessing()方法运行注解处理器
             try {
+                // 调用方法后将返回一个新的JavaCompiler对象，
+                // 使用这个对象将继续执行Java源代码的编译，
+                // 所以说注解处理器能够影响Javac的编译过程
                 JavaCompiler c = procEnvImpl.doProcessing(context, roots, classSymbols, pckSymbols);
                 if (c != this)
                     annotationProcessingOccurred = c.annotationProcessingOccurred = true;

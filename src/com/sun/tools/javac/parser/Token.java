@@ -39,60 +39,76 @@ import java.util.Locale;
  * This code and its internal interfaces are subject to change or
  * deletion without notice.</b>
  */
+// javac将CharBuffer对象中的内容转换为Token流
 public enum Token implements Formattable {
+    // -----------------------------特殊类型
     EOF,
     ERROR,
+    // ------------------------------特殊类型
+    // ------------------------------标识符
+    // 用来泛指用户自定义的类名、包名、变量包、方法名
     IDENTIFIER,
-    ABSTRACT("abstract"),
-    ASSERT("assert"),
+    // ------------------------------标识符
+    // ------------------------------java保留的关键字
+    // 数据类型：
     BOOLEAN("boolean"),
-    BREAK("break"),
     BYTE("byte"),
+    CHAR("char"),
+    SHORT("short"),
+    INT("int"),
+    LONG("long"),
+    FLOAT("float"),
+    DOUBLE("double"),
+    CLASS("class"),
+    INTERFACE("interface"),
+    ENUM("enum"),
+    // 流程控制：
+    BREAK("break"),
+    CONTINUE("continue"),
+    FOR("for"),
+    IF("if"),
     CASE("case"),
     CATCH("catch"),
-    CHAR("char"),
-    CLASS("class"),
-    CONST("const"),
-    CONTINUE("continue"),
     DEFAULT("default"),
     DO("do"),
-    DOUBLE("double"),
     ELSE("else"),
-    ENUM("enum"),
-    EXTENDS("extends"),
-    FINAL("final"),
-    FINALLY("finally"),
-    FLOAT("float"),
-    FOR("for"),
-    GOTO("goto"),
-    IF("if"),
-    IMPLEMENTS("implements"),
-    IMPORT("import"),
-    INSTANCEOF("instanceof"),
-    INT("int"),
-    INTERFACE("interface"),
-    LONG("long"),
+    RETURN("return"),
+    SWITCH("switch"),
+    THROW("throw"),
+    THROWS("throws"),
+    TRY("try"),
+    WHILE("while"),
+    // 修饰符
+    ABSTRACT("abstract"),
     NATIVE("native"),
-    NEW("new"),
-    PACKAGE("package"),
     PRIVATE("private"),
     PROTECTED("protected"),
     PUBLIC("public"),
-    RETURN("return"),
-    SHORT("short"),
     STATIC("static"),
     STRICTFP("strictfp"),
-    SUPER("super"),
-    SWITCH("switch"),
     SYNCHRONIZED("synchronized"),
-    THIS("this"),
-    THROW("throw"),
-    THROWS("throws"),
     TRANSIENT("transient"),
-    TRY("try"),
     VOID("void"),
     VOLATILE("volatile"),
-    WHILE("while"),
+    // 动作
+    EXTENDS("extends"),
+    FINAL("final"),
+    FINALLY("finally"),
+    IMPLEMENTS("implements"),
+    IMPORT("import"),
+    INSTANCEOF("instanceof"),
+    NEW("new"),
+    PACKAGE("package"),
+    SUPER("super"),
+    THIS("this"),
+    ASSERT("assert"),
+    // 保留字
+    CONST("const"),
+    GOTO("goto"),
+    // ------------------------------java保留的关键字
+    // -----------------------------字面量
+    // 基本类型的字面量外，还有String类型的字面量
+    // null通常用来初始化引用类型
     INTLITERAL,
     LONGLITERAL,
     FLOATLITERAL,
@@ -102,6 +118,8 @@ public enum Token implements Formattable {
     TRUE("true"),
     FALSE("false"),
     NULL("null"),
+    // -----------------------------字面量
+    // ----------------------------标识符
     LPAREN("("),
     RPAREN(")"),
     LBRACE("{"),
@@ -150,8 +168,10 @@ public enum Token implements Formattable {
     GTGTEQ(">>="),
     GTGTGTEQ(">>>="),
     MONKEYS_AT("@"),
+    // ----------------------------标识符
     CUSTOM;
 
+    // 如果name不为空，那么就表示将name所保存的字符串定义为一个特定的Token对象（指的就是Token常量）
     public final String name;
 
     Token() {

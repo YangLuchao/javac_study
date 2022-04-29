@@ -39,6 +39,7 @@ import java.util.Map;
 /** A cache for ZipFileIndex objects. */
 public class ZipFileIndexCache {
 
+    // 保存了Java的文件对象到Javac内部文件对象的映射关系
     private final Map<File, ZipFileIndex> map =
             new HashMap<File, ZipFileIndex>();
 
@@ -94,8 +95,10 @@ public class ZipFileIndexCache {
             RelativeDirectory symbolFilePrefix,
             boolean useCache, String cacheLocation,
             boolean writeIndex) throws IOException {
+        // getZipFileIndex()方法首先调用getExistingZipIndex()方法判断map中是否存在对应的ZipFileIndex对象，
+        // 如果不存在或者文件内容已经更新，则创建一个新的ZipFileIndex对象并存储到map中。
         ZipFileIndex zi = getExistingZipIndex(zipFile);
-
+        // 如果ZipFileIndex对象不存在或者文件内容已经更新，则创建一个新的ZipFileIndex对象
         if (zi == null || (zi != null && zipFile.lastModified() != zi.zipFileLastModified)) {
             zi = new ZipFileIndex(zipFile, symbolFilePrefix, writeIndex,
                     useCache, cacheLocation);

@@ -74,6 +74,7 @@ public class ParserFactory {
     }
 
     public Parser newParser(CharSequence input, boolean keepDocComments, boolean keepEndPos, boolean keepLineMap) {
+        // new一个Scanner
         Lexer lexer = scannerFactory.newScanner(input, keepDocComments);
         if (keepEndPos) {
             return new EndPosParser(this, lexer, keepDocComments, keepLineMap);

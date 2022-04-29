@@ -25,27 +25,30 @@
 
 package com.sun.tools.javac.comp;
 
-import java.util.*;
-import java.util.Set;
-
 import com.sun.tools.javac.code.*;
-import com.sun.tools.javac.jvm.*;
-import com.sun.tools.javac.tree.*;
-import com.sun.tools.javac.util.*;
-import com.sun.tools.javac.util.JCDiagnostic.DiagnosticPosition;
-import com.sun.tools.javac.util.List;
-
-import com.sun.tools.javac.tree.JCTree.*;
-import com.sun.tools.javac.code.Lint;
 import com.sun.tools.javac.code.Lint.LintCategory;
-import com.sun.tools.javac.code.Type.*;
 import com.sun.tools.javac.code.Symbol.*;
+import com.sun.tools.javac.code.Type.*;
+import com.sun.tools.javac.jvm.ByteCodes;
+import com.sun.tools.javac.jvm.ClassReader;
+import com.sun.tools.javac.jvm.Target;
+import com.sun.tools.javac.tree.JCTree;
+import com.sun.tools.javac.tree.JCTree.*;
+import com.sun.tools.javac.tree.TreeInfo;
+import com.sun.tools.javac.tree.TreeScanner;
+import com.sun.tools.javac.util.*;
+import com.sun.tools.javac.util.List;
+import com.sun.tools.javac.util.JCDiagnostic.DiagnosticPosition;
 
+import java.util.*;
+
+import static com.sun.tools.javac.code.Flags.ANNOTATION;
+import static com.sun.tools.javac.code.Flags.SYNCHRONIZED;
 import static com.sun.tools.javac.code.Flags.*;
 import static com.sun.tools.javac.code.Kinds.*;
+import static com.sun.tools.javac.code.TypeTags.WILDCARD;
 import static com.sun.tools.javac.code.TypeTags.*;
-
-import static com.sun.tools.javac.main.OptionName.*;
+import static com.sun.tools.javac.main.OptionName.COMPLEXINFERENCE;
 
 /** Type checking helper class for the attribution phase.
  *
@@ -157,6 +160,10 @@ public class Check {
     /** A table mapping flat names of all compiled classes in this run to their
      *  symbols; maintained from outside.
      */
+    // compiled是Map<Name,Class Symbol>类型的变量，
+    // 保存所有类的flatname到ClassSymbol对象的映射关系，
+    // 如果经过合成的flatname从其中取出来的是null，表示与已有名称不冲突，
+    // 则返回这个名称。
     public Map<Name,ClassSymbol> compiled = new HashMap<Name, ClassSymbol>();
 
     /** A handler for messages about deprecated usage.
@@ -397,7 +404,11 @@ public class Check {
      *    enclClass is the flat name of the enclosing class,
      *    classname is the simple name of the local class
      */
+    // 匿名类和本地类的flatname会在Enter类的visitClassDef()方法中更新，
+    // 这个方法会调用Check类的localClassName()方法从而得到flatname
+    // 任何类在编译后都会根据flatname生成一个单独的Class文件，所以在生成flatname时要保证唯一性
     Name localClassName(ClassSymbol c) {
+        // 常量syntheticNameChar就是：$
         for (int i=1; ; i++) {
             Name flatname = names.
                 fromString("" + c.owner.enclClass().flatname +
@@ -2686,6 +2697,7 @@ public class Check {
      *  @param s             The scope
      */
     boolean checkUniqueImport(DiagnosticPosition pos, Symbol sym, Scope s) {
+        // 的第4个参数false表示处理的是非静态导入声明
         return checkUniqueImport(pos, sym, s, false);
     }
 
@@ -2706,6 +2718,21 @@ public class Check {
      *  @param sym           The symbol.
      *  @param s             The scope.
      *  @param staticImport  Whether or not this was a static import
+     */
+    // 判断当前的导入是否为唯一的定义
+    /*
+    例：
+    package compile;
+    public class ImportedTest{ }
+    例(续)
+    package chapter7;
+    import compile.ImportedTest;
+    public class ImportedTest{ }
+    调用importNamed()方法处理导入声明compile.ImportedTest时，
+    当前的编译单元chapter7下已经定义了ImportedTest类，
+    所以如果再导入一个ImportedTest类时，
+    checkUniqueImport()方法中的isClassDecl变量的值将为true并且符号的kind值都为TYP，
+    所以javac将报错，报错摘要“已在该编译单元中定义chapter7.ImportedTest”
      */
     private boolean checkUniqueImport(DiagnosticPosition pos, Symbol sym, Scope s, boolean staticImport) {
         for (Scope.Entry e = s.lookup(sym.name); e.scope != null; e = e.next()) {

@@ -49,11 +49,14 @@ import javax.lang.model.element.Modifier;
  * @see JavaFileManager
  * @since 1.6
  */
+
 public interface JavaFileObject extends FileObject {
 
     /**
      * Kinds of JavaFileObjects.
      */
+    // 要加载的文件类型定义
+        // 一般都是查找以.java结尾的Java源文件或者以.class结尾的Class文件
     enum Kind {
         /**
          * Source files written in the Java programming language.  For
