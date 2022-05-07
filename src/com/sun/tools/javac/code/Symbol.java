@@ -177,6 +177,7 @@ public abstract class Symbol implements Element {
 
     /** The symbol's erased type.
      */
+    // 对泛型进行擦除
     public Type erasure(Types types) {
         if (erasure_field == null)
             erasure_field = types.erasure(type);
@@ -1263,9 +1264,11 @@ public abstract class Symbol implements Element {
          */
         // 判断方法覆写的overrides()方法
         public boolean overrides(Symbol _other, TypeSymbol origin, Types types, boolean checkResult) {
-            if (isConstructor() || _other.kind != MTH) return false;
+            if (isConstructor() || _other.kind != MTH)
+                return false;
 
-            if (this == _other) return true;
+            if (this == _other)
+                return true;
             MethodSymbol other = (MethodSymbol)_other;
 
             // check for a direct implementation
@@ -1320,7 +1323,8 @@ public abstract class Symbol implements Element {
          *  null if none exists. Synthetic methods are not considered
          *  as possible implementations.
          */
-        // 查找方法实现的implementation()方法
+        // 调用MethodSymbol类的implementation()方法可以查找一个抽象方法的实现，也可以查找一个非抽象方法的实现，
+        // 用来辅助进行覆写的检查。
         public MethodSymbol implementation(TypeSymbol origin, Types types, boolean checkResult) {
             return implementation(origin, types, checkResult, implementation_filter);
         }
@@ -1328,10 +1332,12 @@ public abstract class Symbol implements Element {
             private static final Filter<Symbol> implementation_filter = new Filter<Symbol>() {
                 public boolean accepts(Symbol s) {
                     return s.kind == Kinds.MTH &&
+                            // 表示在查找覆写方法的过程中，只查找非合成的方法。
                             (s.flags() & SYNTHETIC) == 0;
                 }
             };
 
+        // 查找方法的实现
         public MethodSymbol implementation(TypeSymbol origin, Types types, boolean checkResult, Filter<Symbol> implFilter) {
             MethodSymbol res = types.implementation(this, origin, checkResult, implFilter);
             if (res != null)

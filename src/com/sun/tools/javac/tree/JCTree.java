@@ -601,6 +601,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         // 保存类型上声明的多个类型参数(泛型)
         public List<JCTypeParameter> typarams;
         public JCExpression extending;
+        // 实现的接口
         public List<JCExpression> implementing;
         // 保存类内部的一些成员，成员变量、方法等
         public List<JCTree> defs;

@@ -433,13 +433,14 @@ public class Enter extends JCTree.Visitor {
         // 将获取到的ClassSymbol对象保存到tree.sym中，这样就完成了符号的标注
         tree.sym = c;
 
-        // Enter class into `compiled' table and enclosing scope.
+        // 类型定义的唯一性检查
         if (chk.compiled.get(c.flatname) != null) {
             duplicateClass(tree.pos(), c);
             result = types.createErrorType(tree.name, (TypeSymbol)owner, Type.noType);
             tree.sym = (ClassSymbol)result.tsym;
             return;
         }
+        // 类型定义的唯一性检查
         chk.compiled.put(c.flatname, c);
         // 填充到宿主类符号的members_field中
         enclScope.enter(c);

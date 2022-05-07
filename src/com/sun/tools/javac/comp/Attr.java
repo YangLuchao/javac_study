@@ -65,6 +65,9 @@ import static com.sun.tools.javac.code.TypeTags.*;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 语义分析主要是由com.sun.tools.javac.comp.Attr类来完成的
+// 这个类完成的主要任务有名称消解（name resolution）、
+// 类型检查（type check）及常量折叠（constant folding）
 public class Attr extends JCTree.Visitor {
     protected static final Context.Key<Attr> attrKey =
         new Context.Key<Attr>();
@@ -624,11 +627,18 @@ public class Attr extends JCTree.Visitor {
                     boolean classExpected,
                     boolean interfaceExpected,
                     boolean checkExtensible) {
+        // 获取tree对应的Type对象t，
         Type t = tree.type != null ?
+                // 如果tree.type不为空时直接获取这个变量的值
             tree.type :
+                // 否则调用attribType()方法得到具体的类型，
+                // 调用的attribType()方法会对语法树进行标注，也就是将查找到的类型保存到tree.type变量上
             attribType(tree, env);
         return checkBase(t, tree, env, classExpected, interfaceExpected, checkExtensible);
     }
+    // classExpected值为true时，表示期望类型t是一个类，如类继承的父类必须是类而不能为接口或者类型变量。在之前调用attribBase()方法对父类进行检查时，传递的这个参数的值都为true
+    // interfaceExpected值为true时，表示对t的期望是一个接口，如类的实现接口必要为接口而不能为类或者类型变量。在之前调用attribBase()方法对实现接口进行检查时，传递的这个参数的值都为true。
+    // checkExtensible值为true时，表示对某些扩展语法进行检查，主要是检查参数化类型中是否含有通配符类型，例如某个类的父类不能为List<? extends Serializable>这样的参数化类型。在对父类及接口进行检查时，这个值一般为true，不过在对枚举类的父类进行检查时，传递的值为false，因为Javac能够确定父类不含有通配符类型，无须进行此类语法的检查。
     Type checkBase(Type t,
                    JCTree tree,
                    Env<AttrContext> env,
@@ -637,6 +647,8 @@ public class Attr extends JCTree.Visitor {
                    boolean checkExtensible) {
         if (t.isErroneous())
             return t;
+        // 当检查实现接口时，interfaceExpected值为true，则要求t必须为接口，否则将报编译错误
+        // 当检查父类时，classExpected值为true，则要求t必须为类，否则将报编译错误。
         if (t.tag == TYPEVAR && !classExpected && !interfaceExpected) {
             // check that type variable is already visible
             if (t.getUpperBound() == null) {
@@ -644,12 +656,14 @@ public class Attr extends JCTree.Visitor {
                 return types.createErrorType(t);
             }
         } else {
+            // 检查接口或类的实际类型参数不允许含有通配符类型
+            // 调用Check类的checkClassType()方法检查参数化类型中是否含有通配符类型，其中传递的最后一个参数的值为checkExtensible|!allowGenerics。
+            // 当checkExtensible值为true时，还需要确保父类没有final修饰，因为由final修饰的类不能有子类
             t = chk.checkClassType(tree.pos(), t, checkExtensible|!allowGenerics);
         }
         if (interfaceExpected && (t.tsym.flags() & INTERFACE) == 0) {
+            // 检查t必须是接口
             log.error(tree.pos(), "intf.expected.here");
-            // return errType is necessary since otherwise there might
-            // be undetected cycles which cause attribution to loop
             return types.createErrorType(t);
         } else if (checkExtensible &&
                    classExpected &&
@@ -657,6 +671,7 @@ public class Attr extends JCTree.Visitor {
                 log.error(tree.pos(), "no.intf.expected.here");
             return types.createErrorType(t);
         }
+        // 父类或接口不能有final修饰
         if (checkExtensible &&
             ((t.tsym.flags() & FINAL) != 0)) {
             log.error(tree.pos(),
@@ -707,17 +722,19 @@ public class Attr extends JCTree.Visitor {
 
             attribBounds(tree.typarams);
 
-            // If we override any other methods, check that we do so properly.
-            // JLS ???
+            // 对方法的覆写或隐藏进行检查
             if (m.isStatic()) {
+                // 检查方法的隐藏
+                // 静态方法只有隐藏，没有覆写，所以只需要调用Check类中的checkHideClashes()方法进行隐藏检查即可
                 chk.checkHideClashes(tree.pos(), env.enclClass.type, m);
             } else {
+                // 当前方法为实例方法时，调用Check类的checkOverrideClashes()方法进行覆写检查
+                // 之所以调用checkOverrideClashes()方法检查方法的覆写，是因为泛型擦除后可能造成方法在覆写时出现冲突
                 chk.checkOverrideClashes(tree.pos(), env.enclClass.type, m);
             }
+            // 无论是静态方法还是实例方法，最后都会调用Check类的checkOverride()方法对覆写或隐藏共同遵循的一些语法规则进行检查
             chk.checkOverride(tree, m);
 
-            // Create a new environment with local scope
-            // for attributing the method.
             Env<AttrContext> localEnv = memberEnter.methodEnv(tree, env);
 
             localEnv.info.lint = lint;
@@ -3187,6 +3204,7 @@ public class Attr extends JCTree.Visitor {
         // methods or unimplemented methods of an implemented interface.
         if ((c.flags() & (ABSTRACT | INTERFACE)) == 0) {
             if (!relax)
+                // 如果当前类不是抽象类，还要求当前类实现所有接口或者抽象类中声明的抽象方法，通过调用checkAllDefined()方法进行检查
                 chk.checkAllDefined(tree.pos(), c);
         }
 

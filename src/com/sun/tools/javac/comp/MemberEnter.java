@@ -644,6 +644,7 @@ public class MemberEnter extends JCTree.Visitor implements Completer {
 
         // 表示离开此作用域范围时删除这个作用域内定义的所有符号
         localEnv.info.scope.leave();
+        // 对方法的唯一性进行检查
         if (chk.checkUnique(tree.pos(), m, enclScope)) {
             // 将方法对应的符号输入到方法所在作用域的符号表中
             enclScope.enter(m);
@@ -707,6 +708,7 @@ public class MemberEnter extends JCTree.Visitor implements Completer {
                 v.setLazyConstValue(initEnv(tree, initEnv), attr, tree.init);
             }
         }
+        // 检查变量的唯一性
         if (chk.checkUnique(tree.pos(), v, enclScope)) {
             chk.checkTransparentVar(tree.pos(), v, enclScope);
             // 将变量对应的符号输入到变量所在作用域的符号表中
@@ -944,10 +946,15 @@ public class MemberEnter extends JCTree.Visitor implements Completer {
             Env<AttrContext> baseEnv = baseEnv(tree, env);
 
             // 对当前类型的父类进行检查
+            // tree是JCClassDecl对象
             Type supertype =
+                    // tree.extending的值不为空时说明Java源代码中明确指定了要继承的父类
                 (tree.extending != null)
+                        // 对类进行类型检查
                 ? attr.attribBase(tree.extending, baseEnv, true, false, true)
+                        // tree.extending的值为空时检查是否为枚举类
                 : ((tree.mods.flags & Flags.ENUM) != 0 && !target.compilerBootstrap(c))
+                        // 如果是枚举类，调用enumBase()方法为枚举类添加一个父类
                 ? attr.attribBase(enumBase(tree.pos, c), baseEnv,
                                   true, false, false)
                 : (c.fullname == names.java_lang_Object)
@@ -959,6 +966,7 @@ public class MemberEnter extends JCTree.Visitor implements Completer {
             ListBuffer<Type> interfaces = new ListBuffer<Type>();
             ListBuffer<Type> all_interfaces = null; // lazy init
             Set<Type> interfaceSet = new HashSet<Type>();
+            // 实现的接口
             List<JCExpression> interfaceTrees = tree.implementing;
             if ((tree.mods.flags & Flags.ENUM) != 0 && target.compilerBootstrap(c)) {
                 // add interface Comparable<T>
@@ -970,6 +978,7 @@ public class MemberEnter extends JCTree.Visitor implements Completer {
                 interfaceTrees =
                     interfaceTrees.prepend(make.Type(syms.serializableType));
             }
+            // 对当前类型实现的接口进行检查
             for (JCExpression iface : interfaceTrees) {
                 Type i = attr.attribBase(iface, baseEnv, false, true, true);
                 if (i.tag == CLASS) {
@@ -1141,6 +1150,7 @@ public class MemberEnter extends JCTree.Visitor implements Completer {
      *  @param pos              The position for trees and diagnostics, if any
      *  @param c                The class symbol of the enum
      */
+    // enumBase()方法调用TreeMaker对象make的相关工厂方法按一定的形式为枚举类合成父类
     private JCExpression enumBase(int pos, ClassSymbol c) {
         JCExpression result = make.at(pos).
             TypeApply(make.QualIdent(syms.enumSym),

@@ -248,7 +248,7 @@ public class Flags {
 
     /** Flag that marks varargs methods.
      */
-    // 标注带有可变参数的方法
+    // 标注带有可变参数的方法(Object ...)
     public static final long VARARGS   = 1L<<34;
 
     /** Flag for annotation type symbols to indicate it has been

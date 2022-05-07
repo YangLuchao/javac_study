@@ -74,6 +74,7 @@ public class Types {
     final JavacMessages messages;
     final Names names;
     final boolean allowBoxing;
+    // 是否支持协变 在JDK 1.5及之后的版本中，这个值都为true
     final boolean allowCovariantReturns;
     final boolean allowObjectToPrimitiveCast;
     final ClassReader reader;
@@ -688,6 +689,7 @@ public class Types {
     /**
      * Is t the same type as s?
      */
+    // 判断两个类型是否相等
     public boolean isSameType(Type t, Type s) {
         return isSameType.visit(t, s);
     }
@@ -696,19 +698,21 @@ public class Types {
 
             public Boolean visitType(Type t, Type s) {
                 if (t == s)
+                    // 当t与s是同一个类型时，直接返回true
                     return true;
 
                 if (s.tag >= firstPartialTag)
+                    // 当s的类型为UndetVar时，调换t与s参数的位置后继续调用visit()方法进行判断
                     return visit(s, t);
 
                 switch (t.tag) {
                 case BYTE: case CHAR: case SHORT: case INT: case LONG: case FLOAT:
                 case DOUBLE: case BOOLEAN: case VOID: case BOT: case NONE:
+                    // 当t为基本类型、void、null与none类型时，两个类型必须是同一个类型才会相等
                     return t.tag == s.tag;
                 case TYPEVAR: {
                     if (s.tag == TYPEVAR) {
-                        //type-substitution does not preserve type-var types
-                        //check that type var symbols and bounds are indeed the same
+                        // 如果t与s都是类型变量，那么tsym变量的值必须相同，并且还要调用visit()方法判断两个类型变量的上界
                         return t.tsym == s.tsym &&
                                 visit(t.getUpperBound(), s.getUpperBound());
                     }
@@ -726,6 +730,11 @@ public class Types {
             }
 
             @Override
+            // 当s为UndetVar对象时，调换t与s参数的位置后继续调用visit()方法进行判断，
+            // 调换参数对于判断两个类型是否相等来说等价，
+            // 最终会访问visitUndetVar()方法，
+            // 这个方法比较UndetVar对象与WildcardType对象后会返回false，
+            // 因为WildcardType对象不能代表具体的类型，而UndetVar对象代表一个具体的类型
             public Boolean visitWildcardType(WildcardType t, Type s) {
                 if (s.tag >= firstPartialTag)
                     return visit(s, t);
@@ -735,84 +744,114 @@ public class Types {
 
             @Override
             public Boolean visitClassType(ClassType t, Type s) {
+                // 当t与s为同一个类型时直接返回true
                 if (t == s)
                     return true;
 
+                // 当s的类型为UndetVar时，调换t与s参数的位置后继续调用visit()方法进行判断，
+                // 也就是调用visitUndetVar()方法进行判断
+                // 例c-8
                 if (s.tag >= firstPartialTag)
                     return visit(s, t);
 
+                // 当s为下界通配符时，只有当t与s的上界及t与s的下界都相同时，类型才可能相同。
                 if (s.isSuperBound() && !s.isExtendsBound())
                     return visit(t, upperBound(s)) && visit(t, lowerBound(s));
 
+                // 当t与s都是组合类型时，如果两个类型相同，则父类和所有实现接口必须相同
                 if (t.isCompound() && s.isCompound()) {
                     if (!visit(supertype(t), supertype(s)))
                         return false;
-
+                    // 通过集合set来提高比较效率
                     HashSet<SingletonType> set = new HashSet<SingletonType>();
+                    // 在遍历第一个组合类型的所有接口时将接口封装为SingletonType对象
                     for (Type x : interfaces(t))
                         set.add(new SingletonType(x));
+                    // 然后在遍历第2个组合类型时也将所有接口封装为SingletonType对象并从set集合中移除
                     for (Type x : interfaces(s)) {
+                        // 如果移除失败，表示第一个组合类型没有对应的SingletonType对象，直接返回false
                         if (!set.remove(new SingletonType(x)))
                             return false;
                     }
+                    // 最后还需要判断set是否为空
                     return (set.isEmpty());
                 }
+                // 当两个类型的tsym相同、封闭类型相同、实际的类型参数类型也相同时，则这两个ClassType对象相同
+                // 例c-10
                 return t.tsym == s.tsym
                     && visit(t.getEnclosingType(), s.getEnclosingType())
+                        // 比较实际类型参数的类型
                     && containsTypeEquivalent(t.getTypeArguments(), s.getTypeArguments());
             }
 
             @Override
             public Boolean visitArrayType(ArrayType t, Type s) {
+                // 当t与s是同一个类型时，visitArrayType()方法直接返回true
                 if (t == s)
                     return true;
 
                 if (s.tag >= firstPartialTag)
+                    // 当s的类型为UndetVar时，调换t与s参数的位置后继续调用visit()方法进行判断
                     return visit(s, t);
 
+                // 当t与s都为数组类型时，调用containsTypeEquivalent()方法判断组成两个数组的元素类型是否相同
                 return s.tag == ARRAY
                     && containsTypeEquivalent(t.elemtype, elemtype(s));
             }
 
             @Override
             public Boolean visitMethodType(MethodType t, Type s) {
-                // isSameType for methods does not take thrown
-                // exceptions into account!
+                // 当t为MethodType类型时，如果s为MethodType或ForAll类型并且它们的形式参数的类型和返回类型相同时，返回true
                 return hasSameArgs(t, s) && visit(t.getReturnType(), s.getReturnType());
             }
 
             @Override
             public Boolean visitPackageType(PackageType t, Type s) {
+                // Javac中表示相同包名使用同一个PackageSymbol对象表示，
+                // 而PackageSymbol对象相同时PackageType对象也相同，
+                // 因为在创建PackageSymbol对象时就创建了对应的PackageType对象，
+                // 直接使用“==”即可
                 return t == s;
             }
 
             @Override
             public Boolean visitForAll(ForAll t, Type s) {
+                // 当t为ForAll类型时，s也必须为ForAll类型，否则方法直接返回false
                 if (s.tag != FORALL)
                     return false;
 
                 ForAll forAll = (ForAll)s;
+                // 首先调用hasSameBounds()方法比较声明的类型参数，主要比较类型参数的数量及上界
                 return hasSameBounds(t, forAll)
+                        // 调用subst()方法将forAll.qtype中使用到的自身的类型变量forAll.tvars全部替换为t类型声明的类型变量，
+                        // 因为两个方法中声明的类型变量如果等价，并没有用同一个对象来表示，
+                        // 所以需要替换forAll.qtype中的返回类型、形式参数类型及抛出的异常类型，以便更好地比较两个类型
                     && visit(t.qtype, subst(forAll.qtype, forAll.tvars, t.tvars));
             }
 
             @Override
             public Boolean visitUndetVar(UndetVar t, Type s) {
+                // 当s为WildcardType对象时，由于UndetVar对象表示具体的类型，
+                // 而WildcardType对象不表示具体的类型，所以两个类型无法进行比较，直接返回false
                 if (s.tag == WILDCARD)
-                    // FIXME, this might be leftovers from before capture conversion
                     return false;
-
+                // 当t与s相同或者t.qtype与s相同时，返回true，其中qtype变量中保存的就是要进行推断的类型变量，如果类型变量一样，推断出来的最终类型肯定也相同
                 if (t == s || t.qtype == s || s.tag == ERROR || s.tag == UNKNOWN)
                     return true;
 
                 if (t.inst != null)
+                    // 当t.inst不为空时，表示已经推断出了具体的类型，调用visit()方法判断t.inst的值是否与s相等
                     return visit(t.inst, s);
 
+                // 如果t.inst的值为空，直接将s赋值给t.inst，
+                // 也就是假设t推断出来的具体类型为s，那么需要检查这个推断的类型是否满足条件
                 t.inst = fromUnknownFun.apply(s);
+                // 判断上界
                 for (List<Type> l = t.lobounds; l.nonEmpty(); l = l.tail) {
                     if (!isSubtype(l.head, t.inst))
                         return false;
                 }
+                // 判断下界
                 for (List<Type> l = t.hibounds; l.nonEmpty(); l = l.tail) {
                     if (!isSubtype(t.inst, l.head))
                         return false;
@@ -1036,6 +1075,7 @@ public class Types {
         return w.kind == t.kind && w.type == t.type;
     }
 
+    // 比较两个类型列表里的所有类型是否全部相等
     public boolean containsTypeEquivalent(List<Type> ts, List<Type> ss) {
         while (ts.nonEmpty() && ss.nonEmpty()
                && containsTypeEquivalent(ts.head, ss.head)) {
@@ -1574,6 +1614,7 @@ public class Types {
      * @param sym a symbol
      */
     // 查找某个类型或某个类型的父类和实现接口
+    // 传入符号，查找父类型
     public Type asSuper(Type t, Symbol sym) {
         return asSuper.visit(t, sym);
     }
@@ -1710,20 +1751,29 @@ public class Types {
      * @param t a type
      * @param sym a symbol
      */
+    // 获取某个给定类型下具体的成员类型，主要还是针对泛型进行操作
+    // 传入符号，返回类型
+    // 例c-13
     public Type memberType(Type t, Symbol sym) {
+        // 当sym有static修饰时，返回sym.type，
         return (sym.flags() & STATIC) != 0
+                // 因为有static修饰的成员的具体类型与t所代表的实例类型无关
             ? sym.type
             : memberType.visit(t, sym);
         }
     // where
         private SimpleVisitor<Type,Symbol> memberType = new SimpleVisitor<Type,Symbol>() {
 
+            //当t不为WildcardType、TypeVar与ClassType对象时调用visitType()方法，这个方法直接返回sym.type
+            @Override
             public Type visitType(Type t, Symbol sym) {
                 return sym.type;
             }
 
+            // 当t为WildcardType对象时调用visitWildcardType()方法
             @Override
             public Type visitWildcardType(WildcardType t, Symbol sym) {
+                // 调用memberType()方法求sym在t的上界类型下的具体类型
                 return memberType(upperBound(t), sym);
             }
 
@@ -1731,11 +1781,14 @@ public class Types {
             public Type visitClassType(ClassType t, Symbol sym) {
                 Symbol owner = sym.owner;
                 long flags = sym.flags();
+                // 判断sym不能有static修饰，因为有static修饰后就与t所代表的参数化类型或裸类型无关了
+                // 同时也要保证定义sym的类型被定义为了泛型类型
                 if (((flags & STATIC) == 0) && owner.type.isParameterized()) {
+                    // 这样sym.type才有可能使用了类型中声明的类型变量，需要将这些类型变量替换为实际的类型
+                    // 调用asOuterSuper()方法查找base，这个类型的tsym为owner
+                    // 由于继承的原因，t可能并不是定义sym的类型，所以要从t开始查找到定义sym的类型，这个类型可能是参数化类型或裸类型，最后找到base
+                    // 例c-14/c-15
                     Type base = asOuterSuper(t, owner);
-                    //if t is an intersection type T = CT & I1 & I2 ... & In
-                    //its supertypes CT, I1, ... In might contain wildcards
-                    //so we need to go through capture conversion
                     base = t.isCompound() ? capture(base) : base;
                     if (base != null) {
                         List<Type> ownerParams = owner.type.allparams();
@@ -1753,8 +1806,10 @@ public class Types {
                 return sym.type;
             }
 
+            // 当t为TypeVar对象时调用visitTypeVar()方法，
             @Override
             public Type visitTypeVar(TypeVar t, Symbol sym) {
+                // 这个方法会继续调用memberType()方法求sym在t的上界类型下的具体类型
                 return memberType(t.bound, sym);
             }
 
@@ -2235,6 +2290,10 @@ public class Types {
      * erasure).
      * @return true if either argument is a sub signature of the other.
      */
+    // 返回true，表示一个方法对另外一个方法进行了覆写
+    // 当t与s所代表的方法的形式参数相同，
+    // 或者对t或者s调用erasure()方法进行泛型擦除后方法的形式参数相同时，
+    // overrideEquivalent()方法将返回true，表示一个方法对另外一个方法进行了覆写。
     public boolean overrideEquivalent(Type t, Type s) {
         return hasSameArgs(t, s) ||
             hasSameArgs(t, erasure(s)) || hasSameArgs(erasure(t), s);
@@ -2243,6 +2302,9 @@ public class Types {
     // <editor-fold defaultstate="collapsed" desc="Determining method implementation in given site">
     class ImplementationCache {
 
+        // key为MethodSymbol类型，保存被覆写的方法
+        // value为SoftReference<Map<TypeSymbol,Entry>>类型，保存覆写对应key方法的方法
+        // 具体就是从TypeSymbol开始查找时找到的覆写方法，这个覆写方法是Entry对象，Entry对象可以简单看作是对MethodSymbol对象的封装
         private WeakHashMap<MethodSymbol, SoftReference<Map<TypeSymbol, Entry>>> _map =
                 new WeakHashMap<MethodSymbol, SoftReference<Map<TypeSymbol, Entry>>>();
 
@@ -2343,6 +2405,7 @@ public class Types {
         public CompoundScope visitClassType(ClassType t, Boolean skipInterface) {
             ClassSymbol csym = (ClassSymbol)t.tsym;
             Entry e = _map.get(csym);
+            // 当没有查找到缓存的结果或缓存的结果不符合要求时，重新获取CompoundScope对象
             if (e == null || !e.matches(skipInterface)) {
                 CompoundScope membersClosure = new CompoundScope(csym);
                 if (!skipInterface) {
@@ -2360,12 +2423,14 @@ public class Types {
 
         @Override
         public CompoundScope visitTypeVar(TypeVar t, Boolean skipInterface) {
+            // 处理类型变量的上界
             return visit(t.getUpperBound(), skipInterface);
         }
     }
 
     private MembersClosureCache membersCache = new MembersClosureCache();
 
+    // skipInterface 跳过接口中的方法
     public CompoundScope membersClosure(Type site, boolean skipInterface) {
         return membersCache.visit(site, skipInterface);
     }
@@ -2379,11 +2444,17 @@ public class Types {
      * if they have the same arguments after renaming all type
      * variables of one to corresponding type variables in the other,
      * where correspondence is by position in the type parameter list.
+     * t 和 s 有相同的论据吗？假定这两种类型都是（可能是多态的）方法类型。
+     * 如果参数列表相等，单态方法类型“具有相同的参数”。多态方法类型“具有相同的参数”，
+     * 如果在将一个的所有类型变量重命名为另一个中的相应类型变量后它们具有相同的参数，
+     * 其中对应关系是在类型参数列表中的位置。
      */
+    // hasSameArgs()方法可以对两个方法的形式参数类型进行比较
     public boolean hasSameArgs(Type t, Type s) {
         return hasSameArgs(t, s, true);
     }
 
+    // hasSameArgs()方法的第3个参数可能是hasSameArgs_strict或者hasSameArgs_nonstrict
     public boolean hasSameArgs(Type t, Type s, boolean strict) {
         return hasSameArgs(t, s, strict ? hasSameArgs_strict : hasSameArgs_nonstrict);
     }
@@ -2394,6 +2465,8 @@ public class Types {
     // where
         private class HasSameArgs extends TypeRelation {
 
+            // 对于hasSameArgs_strict变量来说，strict的值为true，
+            // 而对于hasSameArgs_nonstrict变量来说，strict的值为false
             boolean strict;
 
             public HasSameArgs(boolean strict) {
@@ -2411,6 +2484,7 @@ public class Types {
             }
 
             @Override
+            // 逻辑和com.sun.tools.javac.code.Types.TypeRelation#visitForAll基本相同
             public Boolean visitForAll(ForAll t, Type s) {
                 if (s.tag != FORALL)
                     return strict ? false : visitMethodType(t.asMethodType(), s);
@@ -2443,6 +2517,8 @@ public class Types {
      * corresponding type in `to' in 't'. Match lists `from' and `to'
      * from the right: If lists have different length, discard leading
      * elements of the longer list.
+     * 用 't' 中的 'to' 中的相应类型替换所有出现在 'from' 中的类型。
+     * 从右侧匹配列表 `from' 和 `to'：如果列表的长度不同，则丢弃较长列表的前导元素。
      */
     // 将t中含有form列表中含有的所有类型替换为to列表中对应位置上的类型
     public Type subst(Type t, List<Type> from, List<Type> to) {
@@ -2646,10 +2722,12 @@ public class Types {
     /**
      * Does t have the same bounds for quantified variables as s?
      */
+    // 判断两个ForAll类型的上界是否相同
     boolean hasSameBounds(ForAll t, ForAll s) {
         List<Type> l1 = t.tvars;
         List<Type> l2 = s.tvars;
         while (l1.nonEmpty() && l2.nonEmpty() &&
+                // isSameType()方法比较类型变量的上界
                isSameType(l1.head.getUpperBound(),
                           subst(l2.head.getUpperBound(),
                                 s.tvars,
@@ -2657,6 +2735,7 @@ public class Types {
             l1 = l1.tail;
             l2 = l2.tail;
         }
+        // 判断声明的类型变量的数量是否相等
         return l1.isEmpty() && l2.isEmpty();
     }
     // </editor-fold>
@@ -3339,6 +3418,7 @@ public class Types {
         List<Type> svars = s.getTypeArguments();
         Type tres = t.getReturnType();
         Type sres = subst(s.getReturnType(), svars, tvars);
+        // 调用covariantReturnType()方法判断参数t与s这两个方法的返回类型
         return covariantReturnType(tres, sres, warner);
     }
 
@@ -3347,9 +3427,13 @@ public class Types {
      * @jls section 8.4.5
      */
     public boolean returnTypeSubstitutable(Type r1, Type r2) {
+        // 调用hasSameArgs()方法比较两个方法的形式参数类型，
+        // 需要注意的是，如果是一个由ForAll对象表示的泛型方法和一个MethodType对象表示的非泛型方法进行比较时，即使形式参数相同，hasSameArgs()方法仍然会返回false
+        // 例10-21
         if (hasSameArgs(r1, r2))
             return resultSubtype(r1, r2, Warner.noWarnings);
         else
+            // 如果相同就会继续调用resultSubtype()方法比较方法的返回类型
             return covariantReturnType(r1.getReturnType(),
                                        erasure(r2.getReturnType()),
                                        Warner.noWarnings);
@@ -3362,6 +3446,7 @@ public class Types {
             return true;
         if (r1.getReturnType().isPrimitive() || r2res.isPrimitive())
             return false;
+
 
         if (hasSameArgs(r1, r2))
             return covariantReturnType(r1.getReturnType(), r2res, warner);
@@ -3379,6 +3464,10 @@ public class Types {
      * Is t an appropriate return type in an overrider for a
      * method that returns s?
      */
+    // 对于返回 s 的方法，重写器中的返回类型是否符合
+    // 以下两种情况下types.covariantReturnType()方法将返回true
+    // 1:当两个类型相同时，那么即使是基本类型也返回true
+    // 2:当两个返回类型都是引用类型并且t可赋值给s时方法将返回true
     public boolean covariantReturnType(Type t, Type s, Warner warner) {
         return
             isSameType(t, s) ||
@@ -3675,9 +3764,12 @@ public class Types {
         return cl;
     }
 
+    // 比较两个类型是否相同
     private boolean containsTypeEquivalent(Type t, Type s) {
         return
-            isSameType(t, s) || // shortcut
+                // 调用isSameType()方法判断两个类型是否相同
+            isSameType(t, s) ||
+                    // 如果不想听，判断两个类型是否彼此包含
             containsType(t, s) && containsType(s, t);
     }
 
@@ -3976,9 +4068,14 @@ public class Types {
             this.t = t;
         }
         public int hashCode() {
+            // hashCode()方法在实现时调用了Types.hashCode()方法，
+            // Types.hashCode()方法可以保证相同的两个类型返回的哈希值一定相同
             return Types.hashCode(t);
         }
         public boolean equals(Object obj) {
+            // 而equals()方法对两个SingletonType对象进行比较，
+            // 最终还会调用isSameType()方法进行比较，也就是比较组合类型的实现接口。
+            // 例c-9
             return (obj instanceof SingletonType) &&
                 isSameType(t, ((SingletonType)obj).t);
         }

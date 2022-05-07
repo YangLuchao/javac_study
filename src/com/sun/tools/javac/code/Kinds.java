@@ -94,6 +94,8 @@ public class Kinds {
 
     /** Kinds for erroneous symbols that complement the above
      */
+    // 错误符号的种类
+    // 越小越精确
     public static final int ERRONEOUS = 1 << 6;
     public static final int AMBIGUOUS    = ERRONEOUS+1; // ambiguous reference
     public static final int HIDDEN       = ERRONEOUS+2; // hidden method or field
@@ -103,7 +105,7 @@ public class Kinds {
     public static final int WRONG_MTH    = ERRONEOUS+6; // one method with wrong arguments
     public static final int ABSENT_MTH   = ERRONEOUS+7; // missing method
     public static final int ABSENT_TYP   = ERRONEOUS+8; // missing type
-
+    // 错误符号的种类
     public enum KindName implements Formattable {
         ANNOTATION("kindname.annotation"),
         CONSTRUCTOR("kindname.constructor"),

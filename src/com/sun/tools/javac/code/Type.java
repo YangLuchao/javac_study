@@ -1190,6 +1190,7 @@ public class Type implements PrimitiveType {
 
     // 含有泛型变量声明的方法类型,主要辅助进行类型推断
     public static class ForAll extends DelegatedType implements ExecutableType {
+        // 具体的类型变量
         public List<Type> tvars;
 
         public ForAll(List<Type> tvars, Type qtype) {

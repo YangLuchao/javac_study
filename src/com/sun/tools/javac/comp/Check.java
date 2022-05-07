@@ -224,7 +224,7 @@ public class Check {
 
     /** Warn about unsafe vararg method decl.
      *  @param pos        Position to be used for error reporting.
-     *  @param sym        The deprecated symbol.
+     *  @paramsym        The deprecated symbol.
      */
     void warnUnsafeVararg(DiagnosticPosition pos, String key, Object... args) {
         if (lint.isEnabled(LintCategory.VARARGS) && allowSimplifiedVarargs)
@@ -335,6 +335,8 @@ public class Check {
      *  @param v             The symbol.
      *  @param s             The scope.
      */
+    // 检查变量是否在立即封闭的本地范围内隐藏具有相同名称的变量。
+    // 例10-25
     void checkTransparentVar(DiagnosticPosition pos, VarSymbol v, Scope s) {
         if (s.next != null) {
             for (Scope.Entry e = s.next.lookup(v.name);
@@ -356,6 +358,10 @@ public class Check {
      *  @param c             The symbol.
      *  @param s             The scope.
      */
+    // 除匿名类外的本地类进行检查
+    // Java中有类型隐藏（hidding）的概念，例如有两个类A与B有相同名称，
+    // 类B在类A的作用域内，则在类B的作用域内隐藏了类A，
+    // 也就是无法在类B的作用域内通过简单名称引用类A。
     void checkTransparentClass(DiagnosticPosition pos, ClassSymbol c, Scope s) {
         if (s.next != null) {
             for (Scope.Entry e = s.next.lookup(c.name);
@@ -378,13 +384,22 @@ public class Check {
      *  @param name          The class name.
      *  @param s             The enclosing scope.
      */
+    // 对除匿名类与顶层类外的所有类进行唯一性检查
+    /*
+    参数s通常就是封闭类的members_field变量的值，
+    checkUniqueClassName()方法检查不能在相同的作用域内定义相同名称的类型，
+    如果当前检查的是成员类，还要保证成员类与外层的所有封闭类不能同名。
+    例：10-5、10-6
+     */
     boolean checkUniqueClassName(DiagnosticPosition pos, Name name, Scope s) {
+        // 检查相同作用域内的类型
         for (Scope.Entry e = s.lookup(name); e.scope == s; e = e.next()) {
             if (e.sym.kind == TYP && e.sym.name != names.error) {
                 duplicateError(pos, e.sym);
                 return false;
             }
         }
+        // 检查封闭类型
         for (Symbol sym = s.owner; sym != null; sym = sym.owner) {
             if (sym.kind == TYP && sym.name == name && sym.name != names.error) {
                 duplicateError(pos, sym);
@@ -520,7 +535,6 @@ public class Check {
      *
      *  Used in TypeApply to verify that, e.g., X in V<X> is a valid
      *  type argument.
-     *  @param pos           Position to be used for error reporting.
      *  @param a             The type that should be bounded by bs.
      *  @param bs            The bound.
      */
@@ -555,6 +569,7 @@ public class Check {
      *  @param pos           Position to be used for error reporting.
      *  @param t             The type to be checked.
      */
+    // 检查t类型必须为类或者接口
     Type checkClassType(DiagnosticPosition pos, Type t) {
         if (t.tag != CLASS && t.tag != ERROR)
             return typeTagError(pos,
@@ -571,8 +586,13 @@ public class Check {
      *  @param t             The type to be checked.
      *  @param noBounds    True if type bounds are illegal here.
      */
+    // 检查t类型是类还是接口
+    // 当参数noBounds的值为true并且t是一个参数化类型时，需要对实际的类型参数的类型进行检查，
+    // 当实际的类型参数的类型含有通配符类型时，调用typeTagError()方法返回一个ErrorType对象，表示类型错误
     Type checkClassType(DiagnosticPosition pos, Type t, boolean noBounds) {
+        // 检查t类型为接口或者类
         t = checkClassType(pos, t);
+        // 当noBounds为true且t为参数化类型时，检查实际的类型参数的类型不能为通配符类型
         if (noBounds && t.isParameterized()) {
             List<Type> args = t.getTypeArguments();
             while (args.nonEmpty()) {
@@ -1189,9 +1209,11 @@ public class Check {
 
     /** Is given type a subtype of some of the types in given list?
      */
+    // 如果t是ts列表中任何一个类型的子类时，该方法直接返回true
     boolean subset(Type t, List<Type> ts) {
         for (List<Type> l = ts; l.nonEmpty(); l = l.tail)
-            if (types.isSubtype(t, l.head)) return true;
+            if (types.isSubtype(t, l.head))
+                return true;
         return false;
     }
 
@@ -1207,7 +1229,9 @@ public class Check {
     /** Add type set to given type list, unless it is a subclass of some class
      *  in the list.
      */
+    // 将t添加到ts中，除非t是ts中某一个的子类
     List<Type> incl(Type t, List<Type> ts) {
+        // 调用subset()方法判断l.head是否为ts列表中某个类型的子类型
         return subset(t, ts) ? ts : excl(t, ts).prepend(t);
     }
 
@@ -1217,10 +1241,19 @@ public class Check {
         if (ts.isEmpty()) {
             return ts;
         } else {
+            // 递归对ts列表中的类型进行遍历
             List<Type> ts1 = excl(t, ts.tail);
-            if (types.isSubtype(ts.head, t)) return ts1;
-            else if (ts1 == ts.tail) return ts;
-            else return ts1.prepend(ts.head);
+            // 判断ts列表中的类型是否为t的子类型
+            if (types.isSubtype(ts.head, t))
+                // 如果是，就直接返回ts1，这个ts1中是没有ts.head元素的
+                return ts1;
+            else if (ts1 == ts.tail)
+                // 否则判断ts1与ts.tail
+                // 如果相等，表示之后遍历时没有改变列表中的元素，当前也不需要移除ts.head，所以返回包括有ts.head的ts
+                return ts;
+            else
+                // ts1与ts.tail不相等并且ts.head也不是t的子类时，在ts1之前追加ts.head即可
+                return ts1.prepend(ts.head);
         }
     }
 
@@ -1244,12 +1277,18 @@ public class Check {
 
     /** Form the intersection of two type lists.
      */
+    // 计算新的异常参数列表
     public List<Type> intersect(List<Type> ts1, List<Type> ts2) {
         List<Type> ts = List.nil();
+        // 当ts1列表中的任何一个类型是ts2列表中任何一个类型的子类时，
+        // 调用subset()方法将返回true，也就是ts1列表中的这个类型将通过调用incl()方法添加到ts列表中
         for (List<Type> l = ts1; l.nonEmpty(); l = l.tail)
-            if (subset(l.head, ts2)) ts = incl(l.head, ts);
+            if (subset(l.head, ts2))
+                ts = incl(l.head, ts);
+        // 对于ts2列表进行与ts1列表同样的操作，最后得到ts列表
         for (List<Type> l = ts2; l.nonEmpty(); l = l.tail)
-            if (subset(l.head, ts1)) ts = incl(l.head, ts);
+            if (subset(l.head, ts1))
+                ts = incl(l.head, ts);
         return ts;
     }
 
@@ -1257,6 +1296,7 @@ public class Check {
      */
     boolean isUnchecked(ClassSymbol exc) {
         return
+                // 为Error或RuntimeException类型或者是两个类的子类时，表示这个异常类是非检查异常
             exc.kind == ERR ||
             exc.isSubClass(syms.errorType.tsym, types) ||
             exc.isSubClass(syms.runtimeExceptionType.tsym, types);
@@ -1267,6 +1307,7 @@ public class Check {
     boolean isUnchecked(Type exc) {
         return
             (exc.tag == TYPEVAR) ? isUnchecked(types.supertype(exc)) :
+                    // 当exc.tag的值为CLASS时还会调用另外一个重载的isUnchecked()方法
             (exc.tag == CLASS) ? isUnchecked((ClassSymbol)exc.tsym) :
             exc.tag == BOT;
     }
@@ -1284,6 +1325,8 @@ public class Check {
 
     /** Is exc handled by given exception list?
      */
+    // 当exc为非受检查异常时，调用isUnchecked()方法返回true
+    // 当exc是handled列表中任何一个类型的子类型时，调用subset()方法将返回true
     boolean isHandled(Type exc, List<Type> handled) {
         return isUnchecked(exc) || subset(exc, handled);
     }
@@ -1292,9 +1335,11 @@ public class Check {
      *  @param thrown     The list of thrown exceptions.
      *  @param handled    The list of handled exceptions.
      */
+    // 调用unhandled()方法判断thrown方法抛出的受检查异常是否都为handled方法抛出的异常类型的子类型
     List<Type> unhandled(List<Type> thrown, List<Type> handled) {
         List<Type> unhandled = List.nil();
         for (List<Type> l = thrown; l.nonEmpty(); l = l.tail)
+            // isHandled判断thrown列表中的受检查异常是否为handled列表中任何一个类型的子类
             if (!isHandled(l.head, handled)) unhandled = unhandled.prepend(l.head);
         return unhandled;
     }
@@ -1369,7 +1414,6 @@ public class Check {
      *  Complications:
      *  (1) Do not check overriding of synthetic methods
      *      (reason: they might be final).
-     *      todo: check whether this is still necessary.
      *  (2) Admit the case where an interface proxy throws fewer exceptions
      *      than the method it implements. Augment the proxy methods with the
      *      undeclared exceptions in this case.
@@ -1377,7 +1421,14 @@ public class Check {
      *      has a result type
      *      extended by the result type of the method it implements.
      *      Change the proxies result type to the smaller type in this case.
-     *
+     *  检查此方法是否符合重写方法“其他”。
+     *  其中 `origin' 是检查开始的类。
+     *  并发症：
+     *  （1）不要检查合成方法的覆盖（原因：它们可能是最终的）。
+     *   (2) 承认接口代理抛出的异常少于它实现的方法的情况。
+     *      在这种情况下，使用未声明的异常来增强代理方法。
+     *   (3) 当泛型被启用时，承认接口代理的结果类型由它实现的方法的结果类型扩展的情况。
+     *      在这种情况下，将代理结果类型更改为较小的类型。
      *  @param tree         The tree from which positions
      *                      are extracted for errors.
      *  @param m            The overriding method.
@@ -1385,16 +1436,26 @@ public class Check {
      *  @param origin       The class of which the overriding method
      *                      is a member.
      */
+    // 校验覆写
+    // 例10-20
+    /*
+    当调用checkOverride()方法进行检查时，
+    tree为JCClassDecl(name=CB)对象，m为CB类中的md()方法，
+    而other为CA类中的md()方法，由于两个方法有覆写的关系，所以返回类型必须兼容。
+    在调用types.returnTypeSubstitutable()方法之前计算otres，
+    就是将CA类中的md()方法的返回类型含有的所有类型参数T1，全部替换为对应的T2后得到的类型。
+    由于List<T1>不等于List<T2>，但经过替换后List<T2>就等于List<T2>了
+     */
     void checkOverride(JCTree tree,
                        MethodSymbol m,
                        MethodSymbol other,
                        ClassSymbol origin) {
-        // Don't check overriding of synthetic methods or by bridge methods.
+        // 不检查合成的方法和桥方法
         if ((m.flags() & (SYNTHETIC|BRIDGE)) != 0 || (other.flags() & SYNTHETIC) != 0) {
             return;
         }
 
-        // Error if static method overrides instance method (JLS 8.4.6.2).
+        // 如果静态方法覆写了实例方法将报错
         if ((m.flags() & STATIC) != 0 &&
                    (other.flags() & STATIC) == 0) {
             log.error(TreeInfo.diagnosticPositionFor(m, tree), "override.static",
@@ -1402,8 +1463,7 @@ public class Check {
             return;
         }
 
-        // Error if instance method overrides static or final
-        // method (JLS 8.4.6.1).
+        // 如果实例方法覆写了静态方法或由final修饰的方法将报错
         if ((other.flags() & FINAL) != 0 ||
                  (m.flags() & STATIC) == 0 &&
                  (other.flags() & STATIC) != 0) {
@@ -1418,7 +1478,7 @@ public class Check {
             return;
         }
 
-        // Error if overriding method has weaker access (JLS 8.4.6.3).
+        // 如果覆写的方法的访问权限小于被覆写的方法将报错
         if ((origin.flags() & INTERFACE) == 0 &&
                  protection(m.flags()) > protection(other.flags())) {
             log.error(TreeInfo.diagnosticPositionFor(m, tree), "override.weaker.access",
@@ -1429,12 +1489,9 @@ public class Check {
             return;
         }
 
+        // 对方法的返回类型进行检查，如果覆写的方法的返回类型与被覆写的方法的返回类型不兼容将报错
         Type mt = types.memberType(origin.type, m);
         Type ot = types.memberType(origin.type, other);
-        // Error if overriding result type is different
-        // (or, in the case of generics mode, not a subtype) of
-        // overridden result type. We have to rename any type parameters
-        // before comparing types.
         List<Type> mtvars = mt.getTypeArguments();
         List<Type> otvars = ot.getTypeArguments();
         Type mtres = mt.getReturnType();
@@ -1447,7 +1504,6 @@ public class Check {
             if (!allowCovariantReturns &&
                 m.owner != origin &&
                 m.owner.isSubClass(other.owner, types)) {
-                // allow limited interoperability with covariant returns
             } else {
                 log.error(TreeInfo.diagnosticPositionFor(m, tree),
                           "override.incompatible.ret",
@@ -1462,9 +1518,9 @@ public class Check {
                     mtres, otres);
         }
 
-        // Error if overriding method throws an exception not reported
-        // by overridden method.
+        // 对方法抛出的异常进行检查，如果覆写的方法比被覆写的方法抛出了更多的异常将报错
         List<Type> otthrown = types.subst(ot.getThrownTypes(), otvars, mtvars);
+        // 调用unhandled()方法判断mt方法抛出的受检查异常是否都为ot方法抛出的异常类型的子类型
         List<Type> unhandledErased = unhandled(mt.getThrownTypes(), types.erasure(otthrown));
         List<Type> unhandledUnerased = unhandled(mt.getThrownTypes(), otthrown);
         if (unhandledErased.nonEmpty()) {
@@ -1532,23 +1588,37 @@ public class Check {
 
     /** Check that a class does not inherit two concrete methods
      *  with the same signature.
+     *  检查一个类是否没有继承两个具有相同签名的具体方法。
      *  @param pos          Position to be used for error reporting.
      *  @param site         The class type to be checked.
      */
+    // 检查一个类是否继承了具有相同签名的两个非抽象方法
+    // 例10-17
+    // checkCompatibleConcretes()方法通过最外层的两个for循环与最内层的两个for循环，循环site的所有父类的所有方法，然后对方法进行两两比较。
     public void checkCompatibleConcretes(DiagnosticPosition pos, Type site) {
         Type sup = types.supertype(site);
         if (sup.tag != CLASS) return;
-
+        // 外层的两个for循环
+        // 当父类为参数化类型时，对参数化类型中的方法进行兼容性检查
+        // 在最外层的两个for循环中，第1个循环的条件判断语句保证父类必须有形式参数类型
         for (Type t1 = sup;
              t1.tsym.type.isParameterized();
              t1 = types.supertype(t1)) {
             for (Scope.Entry e1 = t1.tsym.members().elems;
                  e1 != null;
                  e1 = e1.sibling) {
+                // 第2个for循环中通过if条件判断语句过滤掉某些不需要比较的成员
                 Symbol s1 = e1.sym;
+                // 一下成员不需要比较
+                // 非方法
                 if (s1.kind != MTH ||
+                        // 静态方法、合成方法或桥方法
                     (s1.flags() & (STATIC|SYNTHETIC|BRIDGE)) != 0 ||
+                        // 没有继承到site类型中的方法
                     !s1.isInheritedIn(site.tsym, types) ||
+                        // 查找父类的方法在子类site中的实现方法，如果存在就不用继续检查。
+                        // s1还可能为父类的构造方法，此时调用implementation()方法后就会返回s1本身，
+                        // 也不会继续进行检查
                     ((MethodSymbol)s1).implementation(site.tsym,
                                                       types,
                                                       true) != s1)
@@ -1556,17 +1626,20 @@ public class Check {
                 Type st1 = types.memberType(t1, s1);
                 int s1ArgsLength = st1.getParameterTypes().length();
                 if (st1 == s1.type) continue;
-
+                // 内层的两个for循环
                 for (Type t2 = sup;
+                     // 第1个for循环会查找所有的父类
                      t2.tag == CLASS;
                      t2 = types.supertype(t2)) {
                     for (Scope.Entry e2 = t2.tsym.members().lookup(s1.name);
                          e2.scope != null;
                          e2 = e2.next()) {
                         Symbol s2 = e2.sym;
+                        // 第2个for循环内的if条件判断语句会过滤掉某些不需要进行比较的成员
                         if (s2 == s1 ||
                             s2.kind != MTH ||
                             (s2.flags() & (STATIC|SYNTHETIC|BRIDGE)) != 0 ||
+                                // 不包含泛型信息也不进行检查 例10-18
                             s2.type.getParameterTypes().length() != s1ArgsLength ||
                             !s2.isInheritedIn(site.tsym, types) ||
                             ((MethodSymbol)s2).implementation(site.tsym,
@@ -1589,6 +1662,7 @@ public class Check {
      *  @param t1           The first argument type.
      *  @param t2           The second argument type.
      */
+    // 检查类（或接口）是否都定义了具有相同名称和参数但返回类型不兼容的抽象方法。
     public boolean checkCompatibleAbstracts(DiagnosticPosition pos,
                                             Type t1,
                                             Type t2) {
@@ -1596,30 +1670,43 @@ public class Check {
                                         types.makeCompoundType(t1, t2));
     }
 
+    // 检查类（或接口）是否都定义了具有相同名称和参数但返回类型不兼容的抽象方法。
     public boolean checkCompatibleAbstracts(DiagnosticPosition pos,
                                             Type t1,
                                             Type t2,
                                             Type site) {
+        // 调用firstIncompatibility()方法将返回第一个不兼容的方法，
+        // 如果返回null，表示类型中定义的所有方法都兼容，
+        // checkCompatibleAbstracts()方法将返回true
         return firstIncompatibility(pos, t1, t2, site) == null;
     }
 
     /** Return the first method which is defined with same args
      *  but different return types in two given interfaces, or null if none
      *  exists.
+     *  返回在两个给定接口中使用相同参数但返回类型不同定义的第一个方法，如果不存在则返回 null
      *  @param t1     The first type.
      *  @param t2     The second type.
      *  @param site   The most derived type.
      *  @returns symbol from t2 that conflicts with one in t1.
      */
+    // 回在两个给定接口中使用相同参数但返回类型不同定义的第一个方法，如果不存在则返回 null
     private Symbol firstIncompatibility(DiagnosticPosition pos, Type t1, Type t2, Type site) {
         Map<TypeSymbol,Type> interfaces1 = new HashMap<TypeSymbol,Type>();
+        // 查找t1及t1的所有父类和实现接口,然后保存到interfaces1列表中
         closure(t1, interfaces1);
         Map<TypeSymbol,Type> interfaces2;
+        // 例10-12
         if (t1 == t2)
+            // 如果t1与t2是同一个类型，不用再调用closure()方法对t2类型进行查找
+            // 直接将interfaces1列表的值赋值给interfaces2即可
+            // 这其实是准备对同一个类型中定义的方法进行兼容性检查
             interfaces2 = interfaces1;
         else
+            // 调用closure()方法删除在interfaces1列表中已经存在的类型
+            // 剩下的t2及t2的父类和实现接口都加入interfaces2列表中
             closure(t2, interfaces1, interfaces2 = new HashMap<TypeSymbol,Type>());
-
+        // 对父类或接口中的方法进行兼容性检查
         for (Type t3 : interfaces1.values()) {
             for (Type t4 : interfaces2.values()) {
                 Symbol s = firstDirectIncompatibility(pos, t3, t4, site);
@@ -1630,6 +1717,8 @@ public class Check {
     }
 
     /** Compute all the supertypes of t, indexed by type symbol. */
+    // 计算 t 的所有超类型，按类型符号索引
+    // 使用t.tsym作为typeMap集合的key来保证类型的唯一性，将t及t的所有父类和接口都保存到typeMap集合中
     private void closure(Type t, Map<TypeSymbol,Type> typeMap) {
         if (t.tag != CLASS) return;
         if (typeMap.put(t.tsym, t) == null) {
@@ -1651,36 +1740,60 @@ public class Check {
     }
 
     /** Return the first method in t2 that conflicts with a method from t1. */
+    // 返回 t2 中与 t1 中的方法冲突的第一个方法。
+    // 通过两层for循环完成对两个抽象类型中定义的所有方法进行两两检查，确保两个类型中定义的方法在类型site中兼容
     private Symbol firstDirectIncompatibility(DiagnosticPosition pos, Type t1, Type t2, Type site) {
+        // 第一个for循环
         for (Scope.Entry e1 = t1.tsym.members().elems; e1 != null; e1 = e1.sibling) {
             Symbol s1 = e1.sym;
             Type st1 = null;
-            if (s1.kind != MTH || !s1.isInheritedIn(site.tsym, types)) continue;
+            // 当s1不是方法或不能继承到site.tsym中的方法时不进行检查
+            if (s1.kind != MTH || !s1.isInheritedIn(site.tsym, types))
+                continue;
+            // 当s1在site.tsym中有对应的实现时不进行检查
+            // 查找方法的实现
             Symbol impl = ((MethodSymbol)s1).implementation(site.tsym, types, false);
-            if (impl != null && (impl.flags() & ABSTRACT) == 0) continue;
+            // 如果site类型中有对应的方法实现，则不再继续进行检查
+            if (impl != null && (impl.flags() & ABSTRACT) == 0)
+                continue;
+            // 第2个for语句
             for (Scope.Entry e2 = t2.tsym.members().lookup(s1.name); e2.scope != null; e2 = e2.next()) {
                 Symbol s2 = e2.sym;
-                if (s1 == s2) continue;
-                if (s2.kind != MTH || !s2.isInheritedIn(site.tsym, types)) continue;
+                // 同一个方法不进行检查
+                if (s1 == s2)
+                    continue;
+                // 当s2不为方法或不能继承到site.tsym中的方法不进行检查
+                if (s2.kind != MTH || !s2.isInheritedIn(site.tsym, types))
+                    continue;
+                // 如果程序继续往下执行时，说明此时的st1与st2都是方法，并且方法都能被site类型所继承
                 if (st1 == null) st1 = types.memberType(t1, s1);
                 Type st2 = types.memberType(t2, s2);
+                // st1与st2都为抽象方法，当相互覆写时，比较返回类型的兼容性
+                // 调用types.overrideEquivalent()方法对两个方法进行检查，看两个方法是否一个对另外一个进行了覆写
                 if (types.overrideEquivalent(st1, st2)) {
                     List<Type> tvars1 = st1.getTypeArguments();
                     List<Type> tvars2 = st2.getTypeArguments();
                     Type rt1 = st1.getReturnType();
                     Type rt2 = types.subst(st2.getReturnType(), tvars2, tvars1);
                     boolean compat =
-                        types.isSameType(rt1, rt2) ||
+                        types.isSameType(rt1, rt2) || // 返回类型相同时兼容
+                        // 返回类型支持在支持协变的情况下兼容
                         rt1.tag >= CLASS && rt2.tag >= CLASS &&
+                                // 判断返回值类型是否兼容
                         (types.covariantReturnType(rt1, rt2, Warner.noWarnings) ||
+                                // 判断返回值类型是否兼容
                          types.covariantReturnType(rt2, rt1, Warner.noWarnings)) ||
+                         // s1与s2的返回类型虽然不兼容，但是在site下可以兼容
                          checkCommonOverriderIn(s1,s2,site);
+                    // 如果compat值为false，那么会报返回类型不兼容的错误。
                     if (!compat) {
                         log.error(pos, "types.incompatible.diff.ret",
                             t1, t2, s2.name +
                             "(" + types.memberType(t2, s2).getParameterTypes() + ")");
                         return s2;
                     }
+                    // 检查类似于实例10-16这种情况下的冲突
+                    // 调用的checkNameClash()方法将对泛型擦除后的方法的形式参数类型进行检查
                 } else if (checkNameClash((ClassSymbol)site.tsym, s1, s2) &&
                         !checkCommonOverriderIn(s1, s2, site)) {
                     log.error(pos,
@@ -1694,20 +1807,31 @@ public class Check {
         return null;
     }
     //WHERE
+    // 调用checkCommonOverriderIn()方法对覆写进行检查
+    // 例10-15
     boolean checkCommonOverriderIn(Symbol s1, Symbol s2, Type site) {
         Map<TypeSymbol,Type> supertypes = new HashMap<TypeSymbol,Type>();
+        // 获取site类型下，s1引用的成员变量，st1
         Type st1 = types.memberType(site, s1);
+        // 获取site类型下，s2引用的成员变量，st2
         Type st2 = types.memberType(site, s2);
+        // 计算 t 的所有超类型，按类型符号索引，存到supertypes中
         closure(site, supertypes);
         for (Type t : supertypes.values()) {
             for (Scope.Entry e = t.tsym.members().lookup(s1.name); e.scope != null; e = e.next()) {
+                // 循环所有超类中名称与s1.name相同的方法s3
                 Symbol s3 = e.sym;
-                if (s3 == s1 || s3 == s2 || s3.kind != MTH || (s3.flags() & (BRIDGE|SYNTHETIC)) != 0) continue;
+                // 查找一个不同于s1与s2、也不是合成的方法或桥方法的方法
+                if (s3 == s1 || s3 == s2 || s3.kind != MTH || (s3.flags() & (BRIDGE|SYNTHETIC)) != 0)
+                    continue;
+                // 获取site类型下，s3引用的成员变量，st3
                 Type st3 = types.memberType(site,s3);
+                // 当st3分别与st1与st2方法相互覆写时，比较方法的返回类型是否兼容
                 if (types.overrideEquivalent(st3, st1) && types.overrideEquivalent(st3, st2)) {
                     if (s3.owner == site.tsym) {
                         return true;
                     }
+                    // 如果都覆写，那就要判断返回类型
                     List<Type> tvars1 = st1.getTypeArguments();
                     List<Type> tvars2 = st2.getTypeArguments();
                     List<Type> tvars3 = st3.getTypeArguments();
@@ -1715,10 +1839,14 @@ public class Check {
                     Type rt2 = st2.getReturnType();
                     Type rt13 = types.subst(st3.getReturnType(), tvars3, tvars1);
                     Type rt23 = types.subst(st3.getReturnType(), tvars3, tvars2);
+                    // 在支持协变的情况下，rt13方法的返回类型分别与rt1的返回类型和rt2方法的返回类型兼容
                     boolean compat =
                         rt13.tag >= CLASS && rt23.tag >= CLASS &&
+                                // 判断复写后的返回类型
                         (types.covariantReturnType(rt13, rt1, Warner.noWarnings) &&
+                                // 判断复写后的返回类型
                          types.covariantReturnType(rt23, rt2, Warner.noWarnings));
+                    // 当返回类型兼容时，checkCommonOverriderIn()方法最终会返回true
                     if (compat)
                         return true;
                 }
@@ -1732,6 +1860,7 @@ public class Check {
      *                      for errors.
      *  @param m            The overriding method.
      */
+    // 检查给定的方法是否符合它覆盖的任何方法。
     void checkOverride(JCTree tree, MethodSymbol m) {
         ClassSymbol origin = (ClassSymbol)m.owner;
         if ((origin.flags() & ENUM) != 0 && names.finalize.equals(m.name))
@@ -1752,10 +1881,14 @@ public class Check {
 
     void checkOverride(JCTree tree, Type site, ClassSymbol origin, MethodSymbol m) {
         TypeSymbol c = site.tsym;
+        // 在site.tsym中查找所有名称为m.name的符号
         Scope.Entry e = c.members().lookup(m.name);
         while (e.scope != null) {
+            // 然后调用m.overrides()方法确保m覆写了e.sym，
             if (m.overrides(e.sym, origin, types, false)) {
+                // 当m.overrides()方法返回true时，还需要确保e.sym不是抽象方法
                 if ((e.sym.flags() & ABSTRACT) == 0) {
+                    // 然后调用另外一个重载的checkOverride()方法对m与e.sym进行检查
                     checkOverride(tree, m, (MethodSymbol)e.sym, origin);
                 }
             }
@@ -1763,10 +1896,15 @@ public class Check {
         }
     }
 
+    // 调用的checkNameClash()方法将对泛型擦除后的方法的形式参数类型进行检查
     private boolean checkNameClash(ClassSymbol origin, Symbol s1, Symbol s2) {
+        // 如果s1与s2满足ClashFilter对象cf中的过滤条件，
+        // 并且泛型擦除后的s1与s2的形式参数类型相同时，当前方法将返回true
         ClashFilter cf = new ClashFilter(origin.type);
+        // 如果s1与s2满足ClashFilter对象cf中的过滤条件
         return (cf.accepts(s1) &&
                 cf.accepts(s2) &&
+                // 并且泛型擦除后的s1与s2的形式参数类型相同时，当前方法将返回true
                 types.hasSameArgs(s1.erasure(types), s2.erasure(types)));
     }
 
@@ -1775,9 +1913,14 @@ public class Check {
      *  @param pos          Position to be used for error reporting.
      *  @param c            The class.
      */
+    // 当c为非抽象类时会调用Check类的checkAllDefined()方法，保证所有的抽象方法都有对应的实现
     void checkAllDefined(DiagnosticPosition pos, ClassSymbol c) {
         try {
+            // 调用firstUndef()方法获取到一个MethodSymbol对象undef
             MethodSymbol undef = firstUndef(c, c);
+            // 如果undef的值不为null，就表示在c或c的超类中有未实现的抽象方法；
+            // 如果c所代表的类型为没有final修饰的枚举类时，添加ABSTRACT标识，
+            // 因为枚举类中允许有抽象方法
             if (undef != null) {
                 if ((c.flags() & ENUM) != 0 &&
                     types.supertype(c.type).tsym == syms.enumSym &&
@@ -1799,11 +1942,11 @@ public class Check {
 //where
         /** Return first abstract member of class `c' that is not defined
          *  in `impl', null if there is none.
+         *  返回类 `c' 中第一个未在 `impl' 中定义的抽象成员，如果没有则返回 null。
          */
         private MethodSymbol firstUndef(ClassSymbol impl, ClassSymbol c) {
             MethodSymbol undef = null;
-            // Do not bother to search in classes that are not abstract,
-            // since they cannot have abstract members.
+            // 不查找非抽象的类，因为没有抽象实现
             if (c == impl || (c.flags() & (ABSTRACT | INTERFACE)) != 0) {
                 Scope s = c.members();
                 for (Scope.Entry e = s.elems;
@@ -1817,6 +1960,7 @@ public class Check {
                             undef = absmeth;
                     }
                 }
+                // 当c中对应的抽象方法都有实现时，还需要递归调用firstUndef()方法检查c的父类和接口中是否还有没有实现的抽象方法，保证c及c的超类中的抽象方法都有对应的实现
                 if (undef == null) {
                     Type st = types.supertype(c.type);
                     if (st.tag == CLASS)
@@ -2026,6 +2170,9 @@ public class Check {
      *  method conform to the method they implement.
      *  @param tree         The class definition whose members are checked.
      */
+    // 检查当前类中的所有非抽象方法是否正确覆写了接口或者抽象类中的方法
+    // 调用链Attr.visitClassDef()->Attr.attribClass()->
+    // Attr.attribClassBody()->Attr.checkImplementations()
     void checkImplementations(JCClassDecl tree) {
         checkImplementations(tree, tree.sym);
     }
@@ -2035,23 +2182,28 @@ public class Check {
          */
         void checkImplementations(JCClassDecl tree, ClassSymbol ic) {
             ClassSymbol origin = tree.sym;
+            // 外层循环迭代当前类及所有的超类型，包括父类和接口
             for (List<Type> l = types.closure(ic.type); l.nonEmpty(); l = l.tail) {
                 ClassSymbol lc = (ClassSymbol)l.head.tsym;
+                // allowGenerics在JDK 1.5及之后的版本中值都为true
+                // 当lc是抽象类型时就会执行内层循环逻辑
                 if ((allowGenerics || origin != lc) && (lc.flags() & ABSTRACT) != 0) {
+                    // 内层循环迭代超类中定义的所有成员，检查超类中定义的所有抽象方法是否都有对应的实现
                     for (Scope.Entry e=lc.members().elems; e != null; e=e.sibling) {
+                        // 只有抽象类型中才会定义抽象方法，所以在origin类型中查找具体的抽象方法的实现
+                        // 例10-19
                         if (e.sym.kind == MTH &&
+                                // 保证e是抽象的、非static的方法，因为static方法没有覆写的概念
                             (e.sym.flags() & (STATIC|ABSTRACT)) == ABSTRACT) {
                             MethodSymbol absmeth = (MethodSymbol)e.sym;
+                            // 由于调用Symbol类中的implementation()方法在查找方法实现时，
+                            // 主要考虑了形式参数的类型，对于返回类型及方法的修饰符等影响覆写的因素并没有考虑，
+                            // 所以还需要进一步通过调用checkOverride()方法进行检查
                             MethodSymbol implmeth = absmeth.implementation(origin, types, false);
                             if (implmeth != null && implmeth != absmeth &&
                                 (implmeth.owner.flags() & INTERFACE) ==
                                 (origin.flags() & INTERFACE)) {
-                                // don't check if implmeth is in a class, yet
-                                // origin is an interface. This case arises only
-                                // if implmeth is declared in Object. The reason is
-                                // that interfaces really don't inherit from
-                                // Object it's just that the compiler represents
-                                // things that way.
+                                // 调用checkOverride()方法检查implmeth是否正确实现了absmeth
                                 checkOverride(tree, implmeth, absmeth, origin);
                             }
                         }
@@ -2065,20 +2217,32 @@ public class Check {
      *  @param pos          Position to be used for error reporting.
      *  @param c            The class whose interfaces are checked.
      */
+    // 检查一个类实现的所有抽象方法是否相互兼容。
     void checkCompatibleSupertypes(DiagnosticPosition pos, Type c) {
+        // 找到c所有的接口和父类
         List<Type> supertypes = types.interfaces(c);
         Type supertype = types.supertype(c);
+        // 如果父类为抽象类，将父类追加到supertypes列表的头部
         if (supertype.tag == CLASS &&
             (supertype.tsym.flags() & ABSTRACT) != 0)
-            supertypes = supertypes.prepend(supertype);
+        // 对父类或接口中的方法两两进行兼容性检查
         for (List<Type> l = supertypes; l.nonEmpty(); l = l.tail) {
+            // // 首先对参数化类型的父类或接口进行检查，当允许泛型语法时
             if (allowGenerics && !l.head.getTypeArguments().isEmpty() &&
+                    // 调用checkCompatibleAbstracts()方法对参数化类型中定义的方法进行检查
+                    // 因为在调用时，有许多方法很可能在某个具体的参数化类型中不兼容
+                    // 例10-10
                 !checkCompatibleAbstracts(pos, l.head, l.head, c))
                 return;
+            // 对超类进行两两检查
+            // 例10-11
             for (List<Type> m = supertypes; m != l; m = m.tail)
+                // 检查类（或接口）是否都定义了具有相同名称和参数但返回类型不兼容的抽象方法。
                 if (!checkCompatibleAbstracts(pos, l.head, m.head, c))
                     return;
         }
+        // 对方法的实现进行检查
+        // 检查一个类是否继承了具有相同签名的两个非抽象方法
         checkCompatibleConcretes(pos, c);
     }
 
@@ -2106,18 +2270,23 @@ public class Check {
      *  @param site The class whose methods are checked.
      *  @param sym  The method symbol to be checked.
      */
+    // 检查site中sym方法，是否正确复写
     void checkOverrideClashes(DiagnosticPosition pos, Type site, MethodSymbol sym) {
          ClashFilter cf = new ClashFilter(site);
-         //for each method m1 that is a member of 'site'...
+         // checkOverrideClashes()方法有两层for循环，
+         // 都是先调用types.membersClosure()方法得到CompoundScope对象，
+         // 然后调用这个对象的getElementsByName()方法获取满足cf的过滤要求并且名称为sym.name的Symbol对象
          for (Symbol s1 : types.membersClosure(site, false).getElementsByName(sym.name, cf)) {
-            //...find another method m2 that is overridden (directly or indirectly)
-            //by method 'sym' in 'site'
             for (Symbol s2 : types.membersClosure(site, false).getElementsByName(sym.name, cf)) {
-                if (s1 == s2 || !sym.overrides(s2, site.tsym, types, false)) continue;
-                //if (i) the signature of 'sym' is not a subsignature of m1 (seen as
-                //a member of 'site') and (ii) m1 has the same erasure as m2, issue an error
+                if (s1 == s2 || !sym.overrides(s2, site.tsym, types, false))
+                    // 当找到的Symbol对象s1与s2表示同一个方法或sym（sym可能与s1相同）不覆写s2时不进行检查
+                    continue;
                 if (!types.isSubSignature(sym.type, types.memberType(site, s1), false) &&
                         types.hasSameArgs(s1.erasure(types), s2.erasure(types))) {
+                    // 当sym.type不为s2在site类型下的方法类型的子签名，
+                    // 并且s1与s2在泛型擦除后形式参数的类型相同，则表示方法产生冲突
+                    // 例10-30
+                    // 例10-31
                     sym.flags_field |= CLASH;
                     String key = s2 == sym ?
                             "name.clash.same.erasure.no.override" :
@@ -2142,12 +2311,17 @@ public class Check {
      *  @param site The class whose methods are checked.
      *  @param sym  The method symbol to be checked.
      */
+    // 检查方法的隐藏
     void checkHideClashes(DiagnosticPosition pos, Type site, MethodSymbol sym) {
         ClashFilter cf = new ClashFilter(site);
-        //for each method m1 that is a member of 'site'...
+        // 从site或site的所有父类和接口中查找符合条件的符号
+        // 调用types.membersClosure()方法得到一个CompoundScope对象，
+        // 然后调用这个对象的getElementsByName()方法查找满足ClashFilter对象cf的过滤要求并且名称为sym.name的Symbol对象
+        // 例10-29
+        // skipInterface参数值为true，表示不对接口中的方法进行检查，因为接口中不可能存在静态方法
         for (Symbol s : types.membersClosure(site, true).getElementsByName(sym.name, cf)) {
-            //if (i) the signature of 'sym' is not a subsignature of m1 (seen as
-            //a member of 'site') and (ii) 'sym' has the same erasure as m1, issue an error
+            // 当sym的签名不为s的子签名并且泛型擦除后的sym与s的形式参数类型
+            // 相等时，Javac将报错
             if (!types.isSubSignature(sym.type, types.memberType(site, s), false) &&
                     types.hasSameArgs(s.erasure(types), sym.erasure(types))) {
                 log.error(pos,
@@ -2173,10 +2347,14 @@ public class Check {
                 s.owner == site.tsym;
          }
 
+         // accepts()方法中对符号s进行了判断
          public boolean accepts(Symbol s) {
              return s.kind == MTH &&
                      (s.flags() & SYNTHETIC) == 0 &&
+                     // shouldSkip()方法判断符号是否应该被跳过
+                     // 检查的方法s已经产生了冲突，并且这个方法就定义在当前要检查的类site中，那么应该跳过这个方法
                      !shouldSkip(s) &&
+                     // 调用s.isInheritedIn()方法判断s符号是否能被继承到site.tsym中
                      s.isInheritedIn(site.tsym, types) &&
                      !s.isConstructor();
          }
@@ -2656,19 +2834,33 @@ public class Check {
      *  @param sym           The symbol.
      *  @param s             The scope.
      */
+    // 检查符号在给定范围内是否唯一
     boolean checkUnique(DiagnosticPosition pos, Symbol sym, Scope s) {
         if (sym.type.isErroneous())
             return true;
-        if (sym.owner.name == names.any) return false;
+        if (sym.owner.name == names.any)
+            return false;
+        // 调用enclScope的lookup()方法查找名称相同的符号，如果两个变量不是同一个，就会报错
+        // e.scope == s 证了查找到的符号e与sym定义在相同的作用域内
         for (Scope.Entry e = s.lookup(sym.name); e.scope == s; e = e.next()) {
+            // 第1个if语句的条件判断表达式进一步判断两个符号是否产生冲突
             if (sym != e.sym &&
+                    // 当e.sym中的flags_field值中含有CLASH时，表示这个符号在之前的语法检查中已经与其他符号产生了冲突，
+                    // CLASH常量主要用于标识产生冲突的方法
                     (e.sym.flags() & CLASH) == 0 &&
                     sym.kind == e.sym.kind &&
                     sym.name != names.error &&
+                    // 当sym.kind值不等于MTH时，表示当前检查的可能是变量或者类型变量，
+                    // 那么名称相同就会产生冲突，当要检查的sym为MTH时，
+                    // 会判断两个方法的泛型擦除后的类型是否相等，如果相等就会报错
+                    // 调用types.erasure()方法对方法的泛型进行擦除
+                    // 然后调用types.hasSameArgs()方法比较泛型擦除后的两个方法的形式参数类型是否相等
                     (sym.kind != MTH || types.hasSameArgs(types.erasure(sym.type), types.erasure(e.sym.type)))) {
+                // 例10-26
                 if ((sym.flags() & VARARGS) != (e.sym.flags() & VARARGS)) {
                     varargsDuplicateError(pos, sym, e.sym);
                     return true;
+                    // 例20-17
                 } else if (sym.kind == MTH && !types.hasSameArgs(sym.type, e.sym.type, false)) {
                     duplicateErasureError(pos, sym, e.sym);
                     sym.flags_field |= CLASH;
@@ -2706,7 +2898,6 @@ public class Check {
      *  @param pos           Position for error reporting.
      *  @param sym           The symbol.
      *  @param s             The scope
-     *  @param staticImport  Whether or not this was a static import
      */
     boolean checkUniqueStaticImport(DiagnosticPosition pos, Symbol sym, Scope s) {
         return checkUniqueImport(pos, sym, s, true);
@@ -2717,7 +2908,7 @@ public class Check {
      *  @param pos           Position for error reporting.
      *  @param sym           The symbol.
      *  @param s             The scope.
-     *  @param staticImport  Whether or not this was a static import
+     *  @param staticImport  Whether or not this was a static import“
      */
     // 判断当前的导入是否为唯一的定义
     /*

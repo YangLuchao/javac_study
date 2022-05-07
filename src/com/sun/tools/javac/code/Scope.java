@@ -472,6 +472,7 @@ public class Scope {
         return new Iterable<Symbol>() {
             public Iterator<Symbol> iterator() {
                  return new Iterator<Symbol>() {
+                     // 在这个匿名类的具体实现中可以看到，其实还是调用lookup()方法来遍历当前Scope对象中的所有元素
                     Scope.Entry currentEntry = lookup(name, sf);
 
                     public boolean hasNext() {
@@ -724,6 +725,8 @@ public class Scope {
             return new Iterable<Symbol>() {
                 public Iterator<Symbol> iterator() {
                     return new CompoundScopeIterator(subScopes) {
+                        // 在getElementsByName()方法中通过匿名类的方式实现了CompoundScopeIterator类中定义的抽象方法nextIterator()，
+                        // 通过这个方法返回遍历特定Scope中元素的迭代器
                         Iterator<Symbol> nextIterator(Scope s) {
                             return s.getElementsByName(name, sf).iterator();
                         }
@@ -732,6 +735,7 @@ public class Scope {
             };
         }
 
+        // 通过迭代器可以遍历所有subScopes中Scope类型对象的相关符号
         abstract class CompoundScopeIterator implements Iterator<Symbol> {
 
             private Iterator<Symbol> currentIterator;
@@ -749,8 +753,11 @@ public class Scope {
             }
 
             public Symbol next() {
+                // 每当遍历一个Scope中的方法时都会创建一个currentIterator迭代器
+                // 这样，next()方法就通过此迭代器遍历，当遍历完成后，也就是currentIterator的hasNext()方法返回false时
                 Symbol sym = currentIterator.next();
                 if (!currentIterator.hasNext()) {
+                    // 调用update()方法更新currentIterator对象，这样就能接着遍历下一个Scope中的方法
                     update();
                 }
                 return sym;
@@ -762,10 +769,14 @@ public class Scope {
 
             private void update() {
                 while (scopesToScan.nonEmpty()) {
+                    // update()方法就是通过调用nextIterator()方法并传递具体的Scope类型的对象scopesoScan.head来获取迭代器
                     currentIterator = nextIterator(scopesToScan.head);
                     scopesToScan = scopesToScan.tail;
-                    if (currentIterator.hasNext()) return;
+                    // 当获取到的currentIterator中有元素要迭代，即hasNext()方法返回true时，直接返回即可
+                    if (currentIterator.hasNext())
+                        return;
                 }
+                // 所以调用update()方法更新的currentIterator一定有迭代的元素或者为null，表示已经没有迭代的元素了
                 currentIterator = null;
             }
         }
