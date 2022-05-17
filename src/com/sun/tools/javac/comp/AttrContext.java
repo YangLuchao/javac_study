@@ -68,6 +68,7 @@ public class AttrContext {
 
     /** A list of type variables that are all-quantifed in current context.
      */
+    // 在当前上下文中全部量化的类型变量列表
     List<Type> tvars = List.nil();
 
     /** A record of the lint/SuppressWarnings currently in effect

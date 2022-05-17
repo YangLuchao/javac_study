@@ -230,14 +230,17 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     public static final int TYPEIDENT = LITERAL + 1;
 
     /** Array types, of type TypeArray.
+     * 可变长度参数
      */
     public static final int TYPEARRAY = TYPEIDENT + 1;
 
     /** Parameterized types, of type TypeApply.
+     * 参数化类型
      */
     public static final int TYPEAPPLY = TYPEARRAY + 1;
 
     /** Union types, of type TypeUnion
+     * 组合类型
      */
     public static final int TYPEUNION = TYPEAPPLY + 1;
 
@@ -334,6 +337,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
 
     /* The type of this node.
      */
+    // 当前树节点的类型
     public Type type;
 
     /* The tag of this node -- one of the constants declared above.
@@ -908,10 +912,16 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * A for loop.
      */
     // for循环
+    // for(int i =0; i < 10; i++){}
+    // 在数据流分时，任何for语句的tree.init和tree.cond肯定会执行，而tree.body和tree.step会选择执行
     public static class JCForLoop extends JCStatement implements ForLoopTree {
+        // int i = 0
         public List<JCStatement> init;
+        // int i < 10
         public JCExpression cond;
+        // i ++
         public List<JCExpressionStatement> step;
+        // {}
         public JCStatement body;
         protected JCForLoop(List<JCStatement> init,
                           JCExpression cond,
@@ -950,9 +960,13 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * The enhanced for loop.
      */
     // foreach循环
+    // for(Integer i : List<Integer>){}
     public static class JCEnhancedForLoop extends JCStatement implements EnhancedForLoopTree {
+        // Integer i
         public JCVariableDecl var;
+        // List<Integer>
         public JCExpression expr;
+        // {}
         public JCStatement body;
         protected JCEnhancedForLoop(JCVariableDecl var, JCExpression expr, JCStatement body) {
             this.var = var;
@@ -1087,7 +1101,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A "try { } catch ( ) { } finally { }" block.
      */
-    // try
+    // try { } catch ( ) { } finally { }
     public static class JCTry extends JCStatement implements TryTree {
         public JCBlock body;
         public List<JCCatch> catchers;
@@ -1130,7 +1144,9 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      */
     // catch
     public static class JCCatch extends JCTree implements CatchTree {
+        // cache(Exception e)
         public JCVariableDecl param;
+        // {}
         public JCBlock body;
         protected JCCatch(JCVariableDecl param, JCBlock body) {
             this.param = param;
@@ -1204,6 +1220,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
             第1个if语句的条件判断表达式为false时执行else部分，但是很明显这个else是属于第2个if语句的一部分
      */
     public static class JCIf extends JCStatement implements IfTree {
+        // 条件表达式部分
         public JCExpression cond;
         // if部分
         public JCStatement thenpart;
@@ -1344,8 +1361,9 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     /**
      * A throw statement.
      */
-    // throw
+    // throw 树节点
     public static class JCThrow extends JCStatement implements ThrowTree {
+        // 抛出的异常的表达式
         public JCExpression expr;
         protected JCThrow(JCTree expr) {
             this.expr = (JCExpression)expr;

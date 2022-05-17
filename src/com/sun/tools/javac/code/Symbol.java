@@ -1000,9 +1000,9 @@ public abstract class Symbol implements Element {
          *    If this is a local variable, its logical slot number.
          */
         // adr在数据流分析、语法糖去除与代码生成阶段代表了不同的含义
-        // 数据流分析：
-        // 语法糖去除：
-        // 代码生成：
+        // 数据流分析：在vars数组中的位置
+        // 语法糖去除：私有属性，生成获取方法时的变量名后缀
+        // 代码生成：保存的是当前的变量在本地变量表中存储的索引位置
         public int adr = -1;
 
         /** Construct a variable symbol, given its flags, name, type and owner.
@@ -1213,16 +1213,21 @@ public abstract class Symbol implements Element {
         /** Will the erasure of this method be considered by the VM to
          *  override the erasure of the other when seen from class `origin'?
          */
-        // 泛型擦除时辅助判断是否需要添加桥方法
+        // 泛型擦除后辅助判断是否需要添加桥方法
         public boolean binaryOverrides(Symbol _other, TypeSymbol origin, Types types) {
-            if (isConstructor() || _other.kind != MTH) return false;
+            if (isConstructor() || _other.kind != MTH)
+                // 当前符号不是方法或者是构造函数
+                return false;
 
-            if (this == _other) return true;
+            if (this == _other)
+                // this与other相同，表示自己覆写了自己
+                return true;
             MethodSymbol other = (MethodSymbol)_other;
 
-            // check for a direct implementation
-            if (other.isOverridableIn((TypeSymbol)owner) &&
-                types.asSuper(owner.type, other.owner) != null &&
+            // 检查直接的覆写
+            if (other.isOverridableIn((TypeSymbol)owner) && // other可以在定义this的类型中被覆写
+                types.asSuper(owner.type, other.owner) != null && // 定义other的类型是定义this的类型的超类
+                    // this与_other在泛型擦除后类型相同
                 types.isSameType(erasure(types), other.erasure(types)))
                 return true;
 
@@ -1239,10 +1244,12 @@ public abstract class Symbol implements Element {
          *  implementation in class.
          *  @param origin   The class of which the implementation is a member.
          */
-        // 泛型擦除时辅助判断是否需要添加桥方法
+        // 泛型擦除后辅助判断是否需要添加桥方法
         public MethodSymbol binaryImplementation(ClassSymbol origin, Types types) {
             for (TypeSymbol c = origin; c != null; c = types.supertype(c.type).tsym) {
                 for (Scope.Entry e = c.members().lookup(name);
+                     // origin及origin的父类中的每个方法都调用Symbol类中的binaryOverrides()方法，
+                    // 如果方法返回true，则会返回当前这个方法
                      e.scope != null;
                      e = e.next()) {
                     if (e.sym.kind == MTH &&

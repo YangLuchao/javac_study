@@ -32,13 +32,16 @@ package com.sun.tools.javac.util;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 位操作的类
 public class Bits {
 
-
+    // 由于一个int类型只有32位，所以如果要跟踪的变量的数量大于32时就需要更多的int类型的数来表示，这些数都按顺序存储到bits数组中
     private final static int wordlen = 32;
     private final static int wordshift = 5;
     private final static int wordmask = wordlen - 1;
 
+    // bits数组用来保存位的相关信息
+    // 一般在构造方法中初始化为大小为1的int数组
     private int[] bits;
 
     /** Construct an initially empty set.
@@ -60,6 +63,8 @@ public class Bits {
         inclRange(start, limit);
     }
 
+    // bits的长度小于len扩容操作
+    // 在创建Bits对象时通常会在构造方法中将bits初始化为大小为1的数组，所以如果存储48，将会扩容为大小为2的数组
     private void sizeTo(int len) {
         if (bits.length < len) {
             int[] newbits = new int[len];
@@ -76,6 +81,7 @@ public class Bits {
 
     /** Return a copy of this set.
      */
+    // 复制一份当前的Bits对象并返回
     public Bits dup() {
         int[] newbits = new int[bits.length];
         System.arraycopy(bits, 0, newbits, 0, bits.length);
@@ -84,9 +90,14 @@ public class Bits {
 
     /** Include x in this set.
      */
+    // 将x放入bits中
     public void incl(int x) {
         Assert.check(x >= 0);
+        // 通过(x>>>wordshift)+1计算存储x需要的数组大小，即需要多少个整数的位
+        // 例如要存储48，也就是将第48上的位设置为1，这时候计算出来的值为2，表示需要用两个整数来存储
         sizeTo((x >>> wordshift) + 1);
+        // x>>>wordshift计算x保存到数组中的哪个整数的位中
+        // bits[x>>>wordshift]|(1<<(x&wordmask))将之前存储的相关信息与当前的信息取或，保证之前保存的相关信息不丢失
         bits[x >>> wordshift] = bits[x >>> wordshift] |
             (1 << (x & wordmask));
     }
@@ -94,6 +105,7 @@ public class Bits {
 
     /** Include [start..limit) in this set.
      */
+    // 将第start位到第start+limit位的所有位都设置为1，包括第start位，不包括第start+limit位。
     public void inclRange(int start, int limit) {
         sizeTo((limit >>> wordshift) + 1);
         for (int x = start; x < limit; x++)
@@ -103,6 +115,7 @@ public class Bits {
 
     /** Exclude [start...end] from this set.
      */
+    // 将从第start位开始到最后一位的所有位都设置为0，包括最后一位
     public void excludeFrom(int start) {
         Bits temp = new Bits();
         temp.sizeTo(bits.length);
@@ -112,6 +125,8 @@ public class Bits {
 
     /** Exclude x from this set.
      */
+    // 将x在bits中排出
+    // 将第x位上的数设置为0
     public void excl(int x) {
         Assert.check(x >= 0);
         sizeTo((x >>> wordshift) + 1);
@@ -121,6 +136,8 @@ public class Bits {
 
     /** Is x an element of this set?
      */
+    // 判断bits是否包含该元素
+    // 由于bits数组有一定大小，所以如果bits数组大小为2，则2个整数最多有64个可用位，查询参数x不能大于64，判断条件x<(bits.length<<wordshift)就是保证查询参数不能超出当前可用位的数量。通过bits[x>>>wordshif]取出相关的整数后与对应的位执行与操作，如果不为0，则说明相应位为1，x是当前Bits对象的成员
     public boolean isMember(int x) {
         return
             0 <= x && x < (bits.length << wordshift) &&
@@ -138,6 +155,7 @@ public class Bits {
 
     /** this set = this set | xs.
      */
+    // 将当前的Bits对象与传入的xs做或操作，返回操作后的结果。
     public Bits orSet(Bits xs) {
         sizeTo(xs.bits.length);
         for (int i = 0; i < xs.bits.length; i++)
@@ -147,6 +165,8 @@ public class Bits {
 
     /** this set = this set \ xs.
      */
+    // 操作当前的Bits对象，如果与传入的xs对应位上的值相同，将当前Bits对象对应位置为0，否则保持不变，
+    // 如当前的Bits对象为001，与110操作后的结果为001
     public Bits diffSet(Bits xs) {
         for (int i = 0; i < bits.length; i++) {
             if (i < xs.bits.length) {
@@ -186,6 +206,10 @@ public class Bits {
      *  for (int i = bits.nextBit(0); i>=0; i = bits.nextBit(i+1)) ...
      *  </pre>
      */
+    // 从第x位开始查找下一个为1的位，返回这个位的位置，如果不存在，返回-1。
+    // Javac在实现过程中，经常会使用nextBit()方法遍历所有值为1的位，例如
+    // for (int i = bits.nextBit(0); i>=0; i = bits.nextBit(i+1)) ...
+    // bits为Bits对象，从第0位开始遍历所有为1的位，如果i为-1，则结束循环
     public int nextBit(int x) {
         int windex = x >>> wordshift;
         if (windex >= bits.length) return -1;

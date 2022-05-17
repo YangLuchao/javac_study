@@ -52,12 +52,14 @@ public class List<A> extends AbstractCollection<A> implements java.util.List<A> 
 
     /** The first element of the list, supposed to be immutable.
      */
+    // 列表的第一个元素，应该是不可变的
     public A head;
 
     /** The remainder of the list except for its first element, supposed
      *  to be immutable.
      */
     //@Deprecated
+    // 列表的其余部分，除了它的第一个元素，应该是不可变的
     public List<A> tail;
 
     /** Construct a list given its head and tail.

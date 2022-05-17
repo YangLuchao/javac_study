@@ -209,6 +209,7 @@ public class TreeInfo {
     }
 
     /** Return true if a tree represents a diamond new expr. */
+    // 返回true表示tree是钻石语法的构造函数
     public static boolean isDiamond(JCTree tree) {
         switch(tree.getTag()) {
             case JCTree.TYPEAPPLY: return ((JCTypeApply)tree).getTypeArguments().isEmpty();
@@ -644,14 +645,17 @@ public class TreeInfo {
     /** If this tree is an identifier or a field, return its symbol,
      *  otherwise return null.
      */
+    // 根据树节点返回符号，否则返回null
     public static Symbol symbol(JCTree tree) {
         tree = skipParens(tree);
         switch (tree.getTag()) {
+            // 如果是JCIdent或JCFieldAccess对象，直接获取对象中sym变量保存的值即可
         case JCTree.IDENT:
             return ((JCIdent) tree).sym;
         case JCTree.SELECT:
             return ((JCFieldAccess) tree).sym;
         case JCTree.TYPEAPPLY:
+            // 当tree为JCTypeApply对象时，递归调用symbol()方法获取clazz对应的符号即可
             return symbol(((JCTypeApply) tree).clazz);
         default:
             return null;

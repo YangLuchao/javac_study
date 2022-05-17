@@ -300,6 +300,7 @@ public class Type implements PrimitiveType {
    /** Return all parameters of this type and all its outer types in order
     *  outer (first) to inner (last).
     */
+    // 按从外（第一个）到内（最后）的顺序返回此类型的所有参数及其所有外部类型。
     public List<Type> allparams() { return List.nil(); }
 
     /** Does this type contain "error" elements?
@@ -961,6 +962,7 @@ public class Type implements PrimitiveType {
             if (!(obj instanceof MethodType))
                 return false;
             MethodType m = (MethodType)obj;
+            // 方法类型的比较需要比较形式参数的类型、形式参数的数量及方法的返回类型
             List<Type> args1 = argtypes;
             List<Type> args2 = m.argtypes;
             while (!args1.isEmpty() && !args2.isEmpty()) {
@@ -1172,6 +1174,7 @@ public class Type implements PrimitiveType {
     }
 
     public static abstract class DelegatedType extends Type {
+        // 保存被代理的具体类型
         public Type qtype;
         public DelegatedType(int tag, Type qtype) {
             super(tag, qtype.tsym);
@@ -1224,6 +1227,8 @@ public class Type implements PrimitiveType {
          * @return qtype where all occurrences of tvars are replaced
          * by types in actuals
          */
+        // 将MethodType对象qtype中使用到的tvars列表中含有的类型变量替换为actuals列表中的具体类型，
+        // 在inst()方法中获取到的newRestype就是替换后的qtype类型，
         public Type inst(List<Type> actuals, Types types) {
             return types.subst(qtype, tvars, actuals);
         }
@@ -1303,6 +1308,7 @@ public class Type implements PrimitiveType {
     public static class UndetVar extends DelegatedType {
         public List<Type> lobounds = List.nil();
         public List<Type> hibounds = List.nil();
+        // 当推断出UndetVar对象中的类型变量qtype的具体类型时会保存到inst变量中，
         public Type inst = null;
 
         @Override

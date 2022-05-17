@@ -54,6 +54,12 @@ import static com.sun.tools.javac.jvm.ByteCodes.*;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 在Javac中，解语法糖主要由com.sun.tools.javac.comp.Lower类来完成，这个类继承了TreeScanner类并选择性覆写了相关的visitXxx()方法，这些方法对语法糖相关的树节点进行解语法糖。
+// 语言中的语法糖分为如下几种：
+//  泛型，Java语言的泛型完全由Javac等编译器支持，所以也相当于是一颗语法糖。
+//  一些简单的语法糖，如类型装箱转换与类型拆箱转换、方法中的变长参数和条件编译等。
+//  一些语句的语法糖，如增强for循环、选择表达式的类型为枚举类或字符串类的switch语句等。
+//内部类与枚举类，内部类和枚举类最终都会转换为一个普通的类并使用单独的Class文件保存。
 public class Lower extends TreeTranslator {
     protected static final Context.Key<Lower> lowerKey =
         new Context.Key<Lower>();
@@ -138,6 +144,7 @@ public class Lower extends TreeTranslator {
     /** A hash table mapping virtual accessed symbols in outer subclasses
      *  to the actually referred symbol in superclasses.
      */
+    // actualsSymbols变量中保存的信息将为后面生成具体的获取方法提供必要的信息
     Map<Symbol,Symbol> actualSymbols;
 
     /** The current method definition.
@@ -196,6 +203,7 @@ public class Lower extends TreeTranslator {
      *  accessed by them. Only free variables of the method immediately containing
      *  a class are associated with that class.
      */
+    // 缓存查找过的自由变量列表
     Map<ClassSymbol,List<VarSymbol>> freevarCache;
 
     /** A navigator class for collecting the free variables accessed
@@ -206,6 +214,7 @@ public class Lower extends TreeTranslator {
 
         /** The owner of the local class.
          */
+        // owner是FreeVarCollector类中声明的一个类型为MethodSymbol的成员变量，在创建FreeVarCollector对象时初始化
         Symbol owner;
 
         /** The local class.
@@ -227,7 +236,9 @@ public class Lower extends TreeTranslator {
          */
         private void addFreeVar(VarSymbol v) {
             for (List<VarSymbol> l = fvs; l.nonEmpty(); l = l.tail)
-                if (l.head == v) return;
+                if (l.head == v)
+                    return;
+            // 当fvs列表中不含v时，将v添加到列表头部
             fvs = fvs.prepend(v);
         }
 
@@ -237,10 +248,12 @@ public class Lower extends TreeTranslator {
         private void addFreeVars(ClassSymbol c) {
             List<VarSymbol> fvs = freevarCache.get(c);
             if (fvs != null) {
+                // 如果fvs列表不为空，将c中访问的自由变量也添加到当前类的自由变量列表中
                 for (List<VarSymbol> l = fvs; l.nonEmpty(); l = l.tail) {
                     addFreeVar(l.head);
                 }
             }
+            // 首先查找被引用的类c是否有对应的自由变量列表，如果没有，说明c不是本地类或者c没有访问任何自由变量
         }
 
         /** If tree refers to a variable in owner of local class, add it to
@@ -251,6 +264,7 @@ public class Lower extends TreeTranslator {
             visitSymbol(tree.sym);
         }
         // where
+        // 访问符号，判断是否为自由变量，是的话加入到fvs中
         private void visitSymbol(Symbol _sym) {
             Symbol sym = _sym;
             if (sym.kind == VAR || sym.kind == MTH) {
@@ -258,7 +272,10 @@ public class Lower extends TreeTranslator {
                     sym = proxies.lookup(proxyName(sym.name)).sym;
                 if (sym != null && sym.owner == owner) {
                     VarSymbol v = (VarSymbol)sym;
+                    // 调用v.getConstValue()方法的返回值不为空，所以不是自由变量
                     if (v.getConstValue() == null) {
+                        // 当参数_sym是定义在方法中的变量并且不是编译时常量时，
+                        // 调用addFreeVar()方法向fvs列表中追加自由变量
                         addFreeVar(v);
                     }
                 } else {
@@ -272,6 +289,7 @@ public class Lower extends TreeTranslator {
         /** If tree refers to a class instance creation expression
          *  add all free variables of the freshly created class.
          */
+        // 如果树引用类实例创建表达式，则添加新创建的类的所有自由变量。
         public void visitNewClass(JCNewClass tree) {
             ClassSymbol c = (ClassSymbol)tree.constructor.owner;
             addFreeVars(c);
@@ -297,8 +315,11 @@ public class Lower extends TreeTranslator {
         /** If tree refers to a superclass constructor call,
          *  add all free variables of the superclass.
          */
+        // 如果 tree 引用了超类构造函数调用，则添加超类的所有自由变量。
         public void visitApply(JCMethodInvocation tree) {
             if (TreeInfo.name(tree.meth) == names._super) {
+                // 当处理形如super(...)这样的调用父类构造方法的语句时，需要调用addFreeVars()方法处理父类，
+                // 如果父类有对自由变量的引用也会添加到当前类的自由变量中
                 addFreeVars((ClassSymbol) TreeInfo.symbol(tree.meth).owner);
                 Symbol constructor = TreeInfo.symbol(tree.meth);
                 ClassSymbol c = (ClassSymbol)constructor.owner;
@@ -317,13 +338,18 @@ public class Lower extends TreeTranslator {
      */
     List<VarSymbol> freevars(ClassSymbol c)  {
         if ((c.owner.kind & (VAR | MTH)) != 0) {
+            // 当c为本地类或匿名类并且之前没有针对此类进行自由变量收集时，需要获取自由变量列表fvs。
             List<VarSymbol> fvs = freevarCache.get(c);
             if (fvs == null) {
+                // 创建FreeVarCollector对象
                 FreeVarCollector collector = new FreeVarCollector(c);
+                // 调用scan()方法扫描JCClassDecl语法树
                 collector.scan(classDef(c));
                 fvs = collector.fvs;
+                // 放到缓存里
                 freevarCache.put(c, fvs);
             }
+            // 返回
             return fvs;
         } else {
             return List.nil();
@@ -377,6 +403,7 @@ public class Lower extends TreeTranslator {
             this.forEnum = forEnum;
             this.values = new LinkedHashMap<VarSymbol,Integer>();
             this.pos = pos;
+            // 在构造方法中初始化为$SwitchMap$chapter15$Fruit，这个VarSymbol对象的owner为chapter15.Test$1。
             Name varName = names
                 .fromString(target.syntheticNameChar() +
                             "SwitchMap" +
@@ -407,13 +434,19 @@ public class Lower extends TreeTranslator {
         final Map<VarSymbol,Integer> values;
 
         JCLiteral forConstant(VarSymbol v) {
+            // values为Map<VarSymbol,Integer>类型，保存各个变量到整数的映射关系
             Integer result = values.get(v);
             if (result == null)
+                // next是int类型变量，初始值为1，所有的非默认分支按顺序从上到下分配的整数都是从1开始递增的。
                 values.put(v, result = next++);
+            // 最后组成一个新的enumSwitch语法树节点并返回
             return make.Literal(result);
         }
 
         // generate the field initializer for the map
+        // 建一个名称为mapVar的整数类型的数组，然后在静态块内完成对数组的填充。
+        // 其中数组的下标通过调用各个枚举常量的ordinal()方法获取，而枚举常量对应的整数值已经事先保存到values中了，
+        // 只需要按对应关系获取即可
         void translate() {
             make.at(pos.getStartPosition());
             JCClassDecl owner = classDef((ClassSymbol)mapVar.owner);
@@ -761,15 +794,19 @@ public class Lower extends TreeTranslator {
 
     /** A mapping from symbols to their access numbers.
      */
+    // accessNums在生成获取方法的名称时提供编号：access$000、access$100和access$200
     private Map<Symbol,Integer> accessNums;
 
     /** A mapping from symbols to an array of access symbols, indexed by
      *  access code.
      */
+    // accessSyms存储了成员到获取方法的映射关系，同一个成员的使用方式不同，就会生成不同的获取方法，
+    // 所以一个具体的vsym对应一个MethodSymbol类型的数组，初始化时指定大小为98
     private Map<Symbol,MethodSymbol[]> accessSyms;
 
     /** A mapping from (constructor) symbols to access constructor symbols.
      */
+    // 保存了原构造方法到新构造方法的映射
     private Map<Symbol,MethodSymbol> accessConstrs;
 
     /** A list of all class symbols used for access constructor tags.
@@ -778,11 +815,17 @@ public class Lower extends TreeTranslator {
 
     /** A queue for all accessed symbols.
      */
+    // 所有可访问的符号队列
     private ListBuffer<Symbol> accessed;
 
     /** Map bytecode of binary operation to access code of corresponding
      *  assignment operation. This is always an even number.
+     *  将二进制操作的字节码映射到相应赋值操作的访问码。这始终是偶数。
      */
+    // 助词符是ByteCodes类中定义的，编号从96~131与实际的虚拟机指令编码对应，而256及270~275都是Javac虚拟出来的指令，
+    // 并没有Java虚拟机对应的指令存在。在代码生成的过程中会将270~275的虚拟指令对应映射到120~125上，这样Java语言就支持了移位时右侧操作数可以为long类型的语法。
+    // 调用accessCode(int bytecode)方法可能返回12~96之间的任何偶数，所以与前面从0~12之间定义的常量合并后，
+    // 方法accessCode(JCTree tree,JCTree enclOp)可能返回0~96之间的任何偶数
     private static int accessCode(int bytecode) {
         if (ByteCodes.iadd <= bytecode && bytecode <= ByteCodes.lxor)
             return (bytecode - iadd) * 2 + FIRSTASGOPcode;
@@ -799,17 +842,28 @@ public class Lower extends TreeTranslator {
      *  @param enclOp   The closest enclosing operation node of tree,
      *                  null if tree is not a subtree of an operation.
      */
+    // acode算出来的是0～96的所有偶数
     private static int accessCode(JCTree tree, JCTree enclOp) {
         if (enclOp == null)
+            // 当enclOp为null时返回DEREFcode
             return DEREFcode;
         else if (enclOp.getTag() == JCTree.ASSIGN &&
                  tree == TreeInfo.skipParens(((JCAssign) enclOp).lhs))
+            // 当enclOp等于JCTree.ASSIGN时返回ASSIGNcode
             return ASSIGNcode;
         else if (JCTree.PREINC <= enclOp.getTag() && enclOp.getTag() <= JCTree.POSTDEC &&
                  tree == TreeInfo.skipParens(((JCUnary) enclOp).arg))
+            // 当enclOp大于等于JCTree.PREINC而小于等于JCTree.POSTDEC时，
+            // 返回对应的PREINCcode、PREDECcode、POSTINCcode或POSTDECcode；
             return (enclOp.getTag() - JCTree.PREINC) * 2 + PREINCcode;
         else if (JCTree.BITOR_ASG <= enclOp.getTag() && enclOp.getTag() <= JCTree.MOD_ASG &&
                  tree == TreeInfo.skipParens(((JCAssignOp) enclOp).lhs))
+            // 当enclOp大于等于JCTree.BITOR_ASG而小于等于JCTree.MOD_ASG时，
+            // 其实就是判断当前的二元表达式对应的树节点中运算符是否为复合运算符，
+            // JCTree.BITOR_ASG就是|=，对应值为76，而JCTree.MOD_ASG就是%=，对应值为92，
+            // 在数值76~92之间都是复合操作符
+            // 对于JCAssignOp树节点来说，其operator属性的类型为OperatorSymbol，在符号引用消解时会找到对应的预先建立的OperatorSymbol对象，
+            // 获取opcode就是ByteCodes中的编码，然后调用accessCode()方法
             return accessCode(((OperatorSymbol) ((JCAssignOp) enclOp).operator).opcode);
         else
             return DEREFcode;
@@ -817,13 +871,16 @@ public class Lower extends TreeTranslator {
 
     /** Return binary operator that corresponds to given access code.
      */
+    // 返回二元运算符
     private OperatorSymbol binaryAccessOperator(int acode) {
         for (Scope.Entry e = syms.predefClass.members().elems;
              e != null;
              e = e.sibling) {
             if (e.sym instanceof OperatorSymbol) {
                 OperatorSymbol op = (OperatorSymbol)e.sym;
-                if (accessCode(op.opcode) == acode) return op;
+                // 通过acode取出对应的OperatorSymbol对象并返回
+                if (accessCode(op.opcode) == acode)
+                    return op;
             }
         }
         return null;
@@ -878,6 +935,7 @@ public class Lower extends TreeTranslator {
     }
 
     /** Return access symbol for a private or protected symbol from an inner class.
+     *  从内部类返回私有或受保护符号的访问符号。
      *  @param sym        The accessed private symbol.
      *  @param tree       The accessing tree.
      *  @param enclOp     The closest enclosing operation node of tree,
@@ -888,13 +946,11 @@ public class Lower extends TreeTranslator {
      */
     MethodSymbol accessSymbol(Symbol sym, JCTree tree, JCTree enclOp,
                               boolean protAccess, boolean refSuper) {
+        // accessSymbol()方法首先计算accOwner的值，获取方法会作为accOwner的一个成员存在，
+        // 所以获取方法最终会填充到accOwner.members_field中
         ClassSymbol accOwner = refSuper && protAccess
-            // For access via qualified super (T.super.x), place the
-            // access symbol on T.
             ? (ClassSymbol)((JCFieldAccess) tree).selected.type.tsym
-            // Otherwise pretend that the owner of an accessed
-            // protected symbol is the enclosing class of the current
-            // class which is a subclass of the symbol's owner.
+            // 如果refSuper或protAccess中至少有一个为false时，会调用accessClass()方法计算accOwner
             : accessClass(sym, protAccess, tree);
 
         Symbol vsym = sym;
@@ -913,18 +969,25 @@ public class Lower extends TreeTranslator {
             // System.out.println("accessing " + vsym + " in " + vsym.location());
         }
 
-        int acode;                // The access code of the access method.
-        List<Type> argtypes;      // The argument types of the access method.
-        Type restype;             // The result type of the access method.
-        List<Type> thrown;        // The thrown exceptions of the access method.
+        int acode;                // 生成的获取方法的编号($000)
+        List<Type> argtypes;      // 生成的获取方法的形参列表
+        Type restype;             // 生成的获取方法的返回值类型
+        List<Type> thrown;        // 生成的获取方法的异常抛出类型
         switch (vsym.kind) {
         case VAR:
+            // acode为获取方法名称的一部分，当vsym为变量时，调用accessCode()方法计算acode值。
             acode = accessCode(tree, enclOp);
             if (acode >= FIRSTASGOPcode) {
+                // 当acode大于等于FIRSTASGOPcode时，也就是enclOp为复合赋值表达式时，
+                // 调用binarAccessOperator()方法获取OperatorSymbol对象
                 OperatorSymbol operator = binaryAccessOperator(acode);
+                // 通过这个对象可以获取在调用获取方法时使用的实际参数的类型
                 if (operator.opcode == string_add)
+                    // 如果operator的opcode为string_add，
+                    // 例15-23
                     argtypes = List.of(syms.objectType);
                 else
+                    // 否则追加operator的形式参数中除第一个类型外的所有类型
                     argtypes = operator.type.getParameterTypes().tail;
             } else if (acode == ASSIGNcode)
                 argtypes = List.of(vsym.erasure(types));
@@ -934,6 +997,7 @@ public class Lower extends TreeTranslator {
             thrown = List.nil();
             break;
         case MTH:
+            // 当访问的成员是方法时，获取方法的名称中acode的值永远为DEREFcode，也就是0
             acode = DEREFcode;
             argtypes = vsym.erasure(types).getParameterTypes();
             restype = vsym.erasure(types).getReturnType();
@@ -943,20 +1007,26 @@ public class Lower extends TreeTranslator {
             throw new AssertionError();
         }
 
-        // For references via qualified super, increment acode by one,
-        // making it odd.
-        if (protAccess && refSuper) acode++;
+        // 当protAccess与refSuper的属性值同时为true时，acode加1，
+        // 这样就相当于可能取0~97之间的任何数据。一个成员对应生成的获取方法，
+        // 可根据使用方式的不同生成最多98个获取方法，
+        // 这就是将accessSyms集合中MethodSymbol数组的大小初始化为98的原因
+        // 例15-22
+        if (protAccess && refSuper)
+            acode++;
 
-        // Instance access methods get instance as first parameter.
-        // For protected symbols this needs to be the instance as a member
-        // of the type containing the accessed symbol, not the class
-        // containing the access method.
+        // 已经计算好获取方法的相关信息
+
         if ((vsym.flags() & STATIC) == 0) {
+            // 当vsym代表的是实例成员时还需要为生成方法的形式参数追加类型
+            // 通过vsym.owner.erauser(types)获取
             argtypes = argtypes.prepend(vsym.owner.erasure(types));
         }
+        // 然后获取accessors数组中指定的MethodSymbol对象accessor
         MethodSymbol[] accessors = accessSyms.get(vsym);
         MethodSymbol accessor = accessors[acode];
         if (accessor == null) {
+            // 如果对象不存在，则需要合成
             accessor = new MethodSymbol(
                 STATIC | SYNTHETIC,
                 accessName(anum.intValue(), acode),
@@ -965,6 +1035,7 @@ public class Lower extends TreeTranslator {
             enterSynthetic(tree.pos(), accessor, accOwner.members());
             accessors[acode] = accessor;
         }
+        // 返回合成的accessor
         return accessor;
     }
 
@@ -981,11 +1052,14 @@ public class Lower extends TreeTranslator {
 
     /** Do we need an access method to reference private symbol?
      */
+    // 判断是否需要处理对私有构造方法的调用
     boolean needsPrivateAccess(Symbol sym) {
         if ((sym.flags() & PRIVATE) == 0 || sym.owner == currentClass) {
+            // 如果为非私有成员或者在当前类中使用私有成员
             return false;
         } else if (sym.name == names.init && (sym.owner.owner.kind & (VAR | MTH)) != 0) {
-            // private constructor in local class: relax protection
+            // 如果有调用本地类的私有构造方法，则直接去掉构造方法的private修饰符
+            // 例15-16
             sym.flags_field &= ~PRIVATE;
             return false;
         } else {
@@ -996,16 +1070,22 @@ public class Lower extends TreeTranslator {
     /** Do we need an access method to reference symbol in other package?
      */
     boolean needsProtectedAccess(Symbol sym, JCTree tree) {
+        // 其中sym就是被引用的符号，currentClass就是引用sym的那个类
         if ((sym.flags() & PROTECTED) == 0 ||
-            sym.owner.owner == currentClass.owner || // fast special case
+            // 由protected修饰的sym是否需要添加获取方法，
+            // 当sym没有protected修饰时直接返回false，表示不需要添加获取方法
+            sym.owner.owner == currentClass.owner ||
+            // 被引用的符号所定义的类与引用符号的类处在同一个包下，那么protected成员在相同包中仍然能够正常访问，不需要添加获取方法
             sym.packge() == currentClass.packge())
             return false;
         if (!currentClass.isSubClass(sym.owner, types))
+            // 如果当前类currentClass不为sym.owner的子类则返回true，表示需要添加获取方法
             return true;
         if ((sym.flags() & STATIC) != 0 ||
             tree.getTag() != JCTree.SELECT ||
             TreeInfo.name(((JCFieldAccess) tree).selected) == names._super)
             return false;
+        // 因为如果为非子类，则没有权限获取父类的由protected修饰的成员
         return !((JCFieldAccess) tree).selected.type.tsym.isSubClass(currentClass, types);
     }
 
@@ -1014,8 +1094,11 @@ public class Lower extends TreeTranslator {
      *  @param protAccess Is access to a protected symbol in another
      *                    package?
      */
+    // 给定符号的访问方法所在的类。
     ClassSymbol accessClass(Symbol sym, boolean protAccess, JCTree tree) {
         if (protAccess) {
+            // 当protAccess为true时，说明refSuper为false，这样才会调用accessClass()方法，
+            // 这个方法主要是计算ClassSymbol对象c的值，也就是计算获取方法需要添加到哪个类中
             Symbol qualifier = null;
             ClassSymbol c = currentClass;
             if (tree.getTag() == JCTree.SELECT && (sym.flags() & STATIC) == 0) {
@@ -1031,7 +1114,7 @@ public class Lower extends TreeTranslator {
             }
             return c;
         } else {
-            // the symbol is private
+            // 当protAccess为false时，直接返回sym.owner.enclClass()表达式的值，也就是sym肯定是私有成员
             return sym.owner.enclClass();
         }
     }
@@ -1047,17 +1130,22 @@ public class Lower extends TreeTranslator {
         // Access a free variable via its proxy, or its proxy's proxy
         while (sym.kind == VAR && sym.owner.kind == MTH &&
             sym.owner.enclClass() != currentClass) {
-            // A constant is replaced by its constant value.
+            // 条件判断保存引用的是自由变量
             Object cv = ((VarSymbol)sym).getConstValue();
             if (cv != null) {
+                // // 当cv不等于null时，表示是字面量值，
+                // 直接将引用的自由变量替换为对应的字面量值
                 make.at(tree.pos);
                 return makeLit(sym.type, cv);
             }
-            // Otherwise replace the variable by its proxy.
+            // 引用的自由变量更新为引用自由变量对应合成的成员变量，所以从proxies中查找
             sym = proxies.lookup(proxyName(sym.name)).sym;
             Assert.check(sym != null && (sym.flags_field & FINAL) != 0);
             tree = make.at(tree.pos).Ident(sym);
         }
+        // 如果sym是实例成员，base就是具体的实例，要访问base实例中的sym成员变量，需要向获取方法传递参数
+        // 如果sym是静态成员，base可以是类型名称或具体的实例
+        // 例15-19
         JCExpression base = (tree.getTag() == JCTree.SELECT) ? ((JCFieldAccess) tree).selected : null;
         switch (sym.kind) {
         case TYP:
@@ -1086,13 +1174,16 @@ public class Lower extends TreeTranslator {
         case MTH: case VAR:
             if (sym.owner.kind == TYP) {
 
-                // Access methods are required for
-                //  - private members,
-                //  - protected members in a superclass of an
-                //    enclosing class contained in another package.
-                //  - all non-private members accessed via a qualified super.
+                // 引用成员解语法糖
+                // 访问外部类的一些成员在解语法糖阶段需要通过调用获取方法的方式来访问，
+                // 对于成员类型来说，如果有protected或private修饰，则最终作为一个单独的顶层类时会去掉权限访问符，去掉后不会影响对此类的访问，所以不需要特殊处理；
+                // 对于方法和成员变量来说，可以通过access()方法判断是否需要为成员添加获取方法
+                // 例15-17
                 boolean protAccess = refSuper && !needsPrivateAccess(sym)
+                    // 调用needsProtectedAccess(sym, tree)方法返回true
                     || needsProtectedAccess(sym, tree);
+                // sym就是被引用的成员符号。当accReq的值为true时就会添加对应的获取方法
+                // 调用needsPrivateAccess(sym)方法返回true
                 boolean accReq = protAccess || needsPrivateAccess(sym);
 
                 // A base has to be supplied for
@@ -1111,21 +1202,27 @@ public class Lower extends TreeTranslator {
                         if (cv != null) return makeLit(sym.type, cv);
                     }
 
-                    // Private variables and methods are replaced by calls
-                    // to their access methods.
+                    // 私有变量和方法被对其访问方法的调用所取代。
                     if (accReq) {
+                        // 参数sym就是被引用的符号，tree就是引用的树节点
                         List<JCExpression> args = List.nil();
                         if ((sym.flags() & STATIC) == 0) {
-                            // Instance access methods get instance
-                            // as first parameter.
+                            // 如果sym没有static修饰，在调用获取方法时需要追加base参数到实际参数列表头部
                             if (base == null)
+                                // 例如实例15-19中对变量a的引用，调用makeOwnerThis()方法获取的base为JCIdent(this$0)。
                                 base = makeOwnerThis(tree.pos(), sym, true);
+                            // 如果sym没有static修饰，在调用获取方法时需要追加base参数到实际参数列表头部
                             args = args.prepend(base);
                             base = null;   // so we don't duplicate code
                         }
+                        // 调用accessSymbol()方法添加获取方法，同时也要更新访问方式
+                        // 例15-19
                         Symbol access = accessSymbol(sym, tree,
                                                      enclOp, protAccess,
                                                      refSuper);
+                        // 有了调用获取方法的实际参数列表后，就会创建调用获取方法的表达式receiver了，
+                        // 对于a变量来说，计算的receiver为JCFieldAccess(Outer.access$000)，
+                        // 最后access()方法返回JCMethodInvocation对象
                         JCExpression receiver = make.Select(
                             base != null ? base : make.QualIdent(access.owner),
                             access);
@@ -1153,22 +1250,31 @@ public class Lower extends TreeTranslator {
 
     /** Return access constructor for a private constructor,
      *  or the constructor itself, if no access constructor is needed.
+     *  如果不需要访问构造函数，则返回私有构造函数或构造函数本身的访问构造函数。
      *  @param pos       The position to report diagnostics, if any.
      *  @param constr    The private constructor.
      */
     Symbol accessConstructor(DiagnosticPosition pos, Symbol constr) {
+        // 调用needsPrivateAccess()方法判断是否需要处理对私有构造方法的调用
         if (needsPrivateAccess(constr)) {
+            // 合成新的构造方法aconstr
             ClassSymbol accOwner = constr.owner.enclClass();
+            // 查看是否已经合成过次私有方法对应的构造方法
             MethodSymbol aconstr = accessConstrs.get(constr);
+            // 没有就合成一个
             if (aconstr == null) {
                 List<Type> argtypes = constr.type.getParameterTypes();
                 if ((accOwner.flags_field & ENUM) != 0)
                     argtypes = argtypes
                         .prepend(syms.intType)
                         .prepend(syms.stringType);
+                // 更新的是标注语法树，所以合成构造方法也一定要标注对应的符号和类型
                 aconstr = new MethodSymbol(
                     SYNTHETIC,
                     names.init,
+                    // 在创建MethodType对象时，为形式参数列表argtypes中追加了一个类型，
+                    // 首先通过调用accessConstructorTag()方法创建一个ClassSymbol对象，
+                    // 然后调用erasure()方法获取对应的类型。
                     new MethodType(
                         argtypes.append(
                             accessConstructorTag().erasure(types)),
@@ -1176,8 +1282,14 @@ public class Lower extends TreeTranslator {
                         constr.type.getThrownTypes(),
                         syms.methodClass),
                     accOwner);
+                // 调用enterSynthetic()方法将aconstr填充到accOwner.members_field中
+                // 也就是说合成的构造方法会添加到accOwner中。
                 enterSynthetic(pos, aconstr, accOwner.members());
+                // 通过accessConstrs保存私有构造方法到合成构造方法的对应关系，这样下次需要为私有构造方法合成构造方法时就可以重用这个已经合成的构造方法
                 accessConstrs.put(constr, aconstr);
+                // 另外，私有构造方法还会保存到类型为ListBuffer<Symbol>的accessed变量中，
+                // 后序将调用translateTopLevelClass()方法循环这个列表中的值，
+                // 然后通过accessConstrs取出所有合成的构造方法，然后合成JCMethodDecl树节点并添加到标注语法树上
                 accessed.append(constr);
             }
             return aconstr;
@@ -1188,6 +1300,7 @@ public class Lower extends TreeTranslator {
 
     /** Return an anonymous class nested in this toplevel class.
      */
+    // 对于实例15-15来说，调用当前方法可以获取到一个Outer$1类型，然后追加到形式参数列表的末尾。
     ClassSymbol accessConstructorTag() {
         ClassSymbol topClass = currentClass.outermostClass();
         Name flatname = names.fromString("" + topClass.getQualifiedName() +
@@ -1202,12 +1315,15 @@ public class Lower extends TreeTranslator {
     }
 
     /** Add all required access methods for a private symbol to enclosing class.
+     *  将私有符号的所有必需访问方法添加到封闭类
      *  @param sym       The symbol.
      */
     void makeAccessible(Symbol sym) {
         JCClassDecl cdef = classDef(sym.owner.enclClass());
         if (cdef == null) Assert.error("class def not found: " + sym + " in " + sym.owner);
         if (sym.name == names.init) {
+            // accessConstrs取出所有合成的构造方法，然后合成JCMethodDecl树节点并添加到标注语法树上
+            // 当sym为构造方法时，调用accessConstructorDef()方法合成新的构造方法对应的语法树节点，然后追加到cdef.defs中
             cdef.defs = cdef.defs.prepend(
                 accessConstructorDef(cdef.pos, sym, accessConstrs.get(sym)));
         } else {
@@ -1285,10 +1401,13 @@ public class Lower extends TreeTranslator {
     }
 
     /** Construct definition of an access constructor.
+     *
      *  @param pos        The source code position of the definition.
      *  @param constr     The private constructor.
      *  @param accessor   The access method for the constructor.
      */
+    // 构造一个可访问的构造函数
+    // 根据一定的规则创建一个新的JCMethodDecl语法树节点，然后标注相关的语法树节点
     JCTree accessConstructorDef(int pos, Symbol constr, MethodSymbol accessor) {
         make.at(pos);
         JCMethodDecl md = make.MethodDef(accessor,
@@ -1335,10 +1454,12 @@ public class Lower extends TreeTranslator {
     /** The name of a free variable proxy.
      */
     Name proxyName(Name name) {
+        // 新合成的成员变量的名称只需要在自由变量的名称之前追加“val$”字符串即可
         return names.fromString("val" + target.syntheticNameChar() + name);
     }
 
     /** Proxy definitions for all free variables in given list, in reverse order.
+     *  给定列表中所有自由变量的代理定义，以相反的顺序。
      *  @param pos        The source code position of the definition.
      *  @param freevars   The free variables.
      *  @param owner      The class in which the definitions go.
@@ -1349,9 +1470,12 @@ public class Lower extends TreeTranslator {
             target.usePrivateSyntheticFields())
             flags |= PRIVATE;
         List<JCVariableDecl> defs = List.nil();
+        // 循环为每个被引用的自由变量创建对应的VarSymbol对象和JCVariableDecl对象，
+        // 然后将创建好的VarSymbol对象填充到proxies作用域中。
         for (List<VarSymbol> l = freevars; l.nonEmpty(); l = l.tail) {
             VarSymbol v = l.head;
             VarSymbol proxy = new VarSymbol(
+                    // 创建VarSymbol对象之前，需要调用proxyName()方法创建变量名称
                 flags, proxyName(v.name), v.erasure(types), owner);
             proxies.enter(proxy);
             JCVariableDecl vd = make.at(pos).VarDef(proxy, null);
@@ -1364,14 +1488,18 @@ public class Lower extends TreeTranslator {
     /** The name of a this$n field
      *  @param type   The class referenced by the this$n field
      */
+    // 返回this$n的Name对象
     Name outerThisName(Type type, Symbol owner) {
         Type t = type.getEnclosingType();
         int nestingLevel = 0;
+        // 通过循环得到当前类型type嵌套的层次nestingLevel
         while (t.tag == CLASS) {
             t = t.getEnclosingType();
             nestingLevel++;
         }
+        // 然后创建一个result对象，其中调用target.syntheticNameChar()方法返回字符'$'
         Name result = names.fromString("this" + target.syntheticNameChar() + nestingLevel);
+        // 向新合成的字符串名称末尾追加一个或多个'$'字符来避免冲突
         while (owner.kind == TYP && ((ClassSymbol)owner).members().lookup(result).scope != null)
             result = names.fromString(result.toString() + target.syntheticNameChar());
         return result;
@@ -1387,6 +1515,9 @@ public class Lower extends TreeTranslator {
             target.usePrivateSyntheticFields())
             flags |= PRIVATE;
         Type target = types.erasure(owner.enclClass().type.getEnclosingType());
+        // outerThisDef()方法在创建VarSymbol对象outerThis之前，
+        // 会调用outerThisName()方法合成一个名称以“this$”字符串开头的变量，
+        // 同时将outerThis追加到outerThisStack列表的头部
         VarSymbol outerThis = new VarSymbol(
             flags, outerThisName(target, owner), target, owner);
         outerThisStack = outerThisStack.prepend(outerThis);
@@ -1400,6 +1531,7 @@ public class Lower extends TreeTranslator {
      *  @param pos          The source code position to be used for the trees.
      *  @param freevars     The list of free variables.
      */
+    // loadFreevars()方法得到自由变量对应的语法树
     List<JCExpression> loadFreevars(DiagnosticPosition pos, List<VarSymbol> freevars) {
         List<JCExpression> args = List.nil();
         for (List<VarSymbol> l = freevars; l.nonEmpty(); l = l.tail)
@@ -1461,23 +1593,30 @@ public class Lower extends TreeTranslator {
      * @return A a desugared try-with-resources tree, or the original
      * try block if there are no resources to manage.
      */
+    // 解 try-with-resources 语法糖
     JCTree makeTwrTry(JCTry tree) {
         make_at(tree.pos());
         twrVars = twrVars.dup();
+        // 调用makeTwrBlock()方法创建新的JCBlock语法树节点
         JCBlock twrBlock = makeTwrBlock(tree.resources, tree.body, 0);
         if (tree.catchers.isEmpty() && tree.finalizer == null)
+            // 没有catch块
             result = translate(twrBlock);
         else
+            // 有catch块
             result = translate(make.Try(twrBlock, tree.catchers, tree.finalizer));
         twrVars = twrVars.leave();
         return result;
     }
 
+    // 创建新的JCBlock语法树节点
+    // 在makeTwrBlock()方法中，当声明的资源变量多于一个时，会递归调用makeTwrBlock()方法进行处理，也就是通过嵌套的方式解语法糖
+    // 例15-12
     private JCBlock makeTwrBlock(List<JCTree> resources, JCBlock block, int depth) {
         if (resources.isEmpty())
             return block;
 
-        // Add resource declaration or expression to block statements
+        // 将资源声明当作块的一个语句添加到stats列表中
         ListBuffer<JCStatement> stats = new ListBuffer<JCStatement>();
         JCTree resource = resources.head;
         JCExpression expr = null;
@@ -1501,7 +1640,9 @@ public class Lower extends TreeTranslator {
             stats.add(syntheticTwrVarDecl);
         }
 
-        // Add primaryException declaration
+        /* 对于实例15-10来说，合成如下的语句
+        /*synthetic*\/ Throwable primaryException0$ = null;
+        */
         VarSymbol primaryException =
             new VarSymbol(SYNTHETIC,
                           makeSyntheticName(names.fromString("primaryException" +
@@ -1509,10 +1650,16 @@ public class Lower extends TreeTranslator {
                           syms.throwableType,
                           currentMethodSym);
         twrVars.enter(primaryException);
+
         JCVariableDecl primaryExceptionTreeDecl = make.VarDef(primaryException, makeNull());
         stats.add(primaryExceptionTreeDecl);
 
-        // Create catch clause that saves exception and then rethrows it
+    /* 对于实例15-10来说，合成如下的语句
+    catch (/*synthetic*\/ final Throwable t$) {
+        primaryException0$ = t$;
+        throw t$;
+    }
+    */
         VarSymbol param =
             new VarSymbol(FINAL|SYNTHETIC,
                           names.fromString("t" +
@@ -1527,8 +1674,10 @@ public class Lower extends TreeTranslator {
 
         int oldPos = make.pos;
         make.at(TreeInfo.endPos(block));
+        // 调用makeTwrFinallyClause()方法合成finally语句
         JCBlock finallyClause = makeTwrFinallyClause(primaryException, expr);
         make.at(oldPos);
+        // 递归调用makeTwrBlock()方法处理resources列表
         JCTry outerTry = make.Try(makeTwrBlock(resources.tail, block, depth + 1),
                                   List.<JCCatch>of(catchClause),
                                   finallyClause);
@@ -1536,8 +1685,9 @@ public class Lower extends TreeTranslator {
         return make.Block(0L, stats.toList());
     }
 
+    // 合成finally语句
     private JCBlock makeTwrFinallyClause(Symbol primaryException, JCExpression resource) {
-        // primaryException.addSuppressed(catchException);
+        // 对于实例15-10来说，合成primaryException0$.addSuppressed(x2)语句
         VarSymbol catchException =
             new VarSymbol(0, make.paramName(2),
                           syms.throwableType,
@@ -1547,7 +1697,13 @@ public class Lower extends TreeTranslator {
                                names.addSuppressed,
                                List.<JCExpression>of(make.Ident(catchException))));
 
-        // try { resource.close(); } catch (e) { primaryException.addSuppressed(e); }
+    /* 对于实例15-10来说，合成如下的语句
+    try {
+        br.close();
+    } catch (Throwable x2) {
+        primaryException0$.addSuppressed(x2);
+    }
+    */
         JCBlock tryBlock =
             make.Block(0L, List.<JCStatement>of(makeResourceCloseInvocation(resource)));
         JCVariableDecl catchExceptionDecl = make.VarDef(catchException, null);
@@ -1555,12 +1711,29 @@ public class Lower extends TreeTranslator {
         List<JCCatch> catchClauses = List.<JCCatch>of(make.Catch(catchExceptionDecl, catchBlock));
         JCTry tryTree = make.Try(tryBlock, catchClauses, null);
 
-        // if (primaryException != null) {try...} else resourceClose;
+/* 对于实例15-10来说，合成如下的语句
+    if (primaryException0$ != null)
+        try {
+          br.close();
+        } catch (Throwable x2) {
+           primaryException0$.addSuppressed(x2);
+        } else br.close();
+    */
         JCIf closeIfStatement = make.If(makeNonNullCheck(make.Ident(primaryException)),
                                         tryTree,
                                         makeResourceCloseInvocation(resource));
 
-        // if (#resource != null) { if (primaryException ...  }
+/* 对于实例15-10来说，合成如下的语句
+    {
+        if (primaryException0$ != null)
+            try {
+              br.close();
+            } catch (Throwable x2) {
+              primaryException0$.addSuppressed(x2);
+            }
+        else br.close();
+    }
+    */
         return make.Block(0L,
                           List.<JCStatement>of(make.If(makeNonNullCheck(resource),
                                                        closeIfStatement,
@@ -1673,10 +1846,15 @@ public class Lower extends TreeTranslator {
     /** Return tree simulating the assignment <this.name = name>, where
      *  name is the name of a free variable.
      */
+    // 返回树模拟赋值 <this.name = name>，其中 name 是自由变量的名称。
     JCStatement initField(int pos, Name name) {
+        // 对于合成的名称name，从proxies中查找对应的Scope.Entry对象
         Scope.Entry e = proxies.lookup(name);
         Symbol rhs = e.sym;
         Assert.check(rhs.owner.kind == MTH);
+        // 在获取lhs的值时，需要调用e.next()方法获取Scope.Entry对象的shadowed变量的值，
+        // 因为两个符号的名称相同，并且合成的成员变量一定会先填充到proxies中，
+        // 而合成的构造方法中的形式参数后填充到proxies中，所以后填充的同名符号在前，通过shadowed指向先添加的符号
         Symbol lhs = e.next().sym;
         Assert.check(rhs.owner.owner == lhs.owner);
         make.at(pos);
@@ -1689,12 +1867,15 @@ public class Lower extends TreeTranslator {
 
     /** Return tree simulating the assignment <this.this$n = this$n>.
      */
+    // 返回树模拟赋值 <this.this = this>
     JCStatement initOuterThis(int pos) {
+        // 从outerThisStack中取出构造方法合成的形式参数对应的VarSymbol对象
         VarSymbol rhs = outerThisStack.head;
         Assert.check(rhs.owner.kind == MTH);
         VarSymbol lhs = outerThisStack.tail.head;
         Assert.check(rhs.owner.owner == lhs.owner);
         make.at(pos);
+        // 然后取出封闭类的实例对应的成员变量的VarSymbol对象进行赋值操作。
         return
             make.Exec(
                 make.Assign(
@@ -2242,6 +2423,7 @@ public class Lower extends TreeTranslator {
         throw new AssertionError();
     }
 
+    // 为本地类合成了封闭类实例对应的成员变量和自由变量对应的成员变量
     public void visitClassDef(JCClassDecl tree) {
         ClassSymbol currentClassPrev = currentClass;
         MethodSymbol currentMethodSymPrev = currentMethodSym;
@@ -2249,7 +2431,11 @@ public class Lower extends TreeTranslator {
         currentMethodSym = null;
         classdefs.put(currentClass, tree);
 
+        // 对于内部类来说，需要保持一个对外部类实例的引用，所以在处理本地类时，
+        // 会在Lower类的visitClassDef()方法中合成一个名称以“this$”字符串开头的成员变量
+        // proxies用来保存自由变量对应的成员变量的符号
         proxies = proxies.dup(currentClass);
+        // outerThisStack用来保存封装类的实例变量，也就是调用outerThisDef()方法合成的名称以“this$”开头的变量
         List<VarSymbol> prevOuterThisStack = outerThisStack;
 
         // If this is an enum definition
@@ -2260,11 +2446,21 @@ public class Lower extends TreeTranslator {
         // If this is a nested class, define a this$n field for
         // it and add to proxies.
         JCVariableDecl otdef = null;
+        // 内部类都会调用outerThisDef()方法合成一个名称以“this$”开头的变量
+        // 将这个变量对应的语法树追加到tree.defs中，同时将这个变量对应的符号otdef.sym填充到currentClass.members_field中，
+        // 这样这个变量就是当前类的一个成员变量了。
         if (currentClass.hasOuterInstance())
             otdef = outerThisDef(tree.pos, currentClass);
 
-        // If this is a local class, define proxies for all its free variables.
+        // 如果这是一个本地类，则为其所有自由变量定义代理
+        // 1.收集被本地类引用的自由变量:freevars(currentClass)
+        // currentClass就是当前类对应的ClassSymbol对象，
+        // 调用freevars()方法收集所有currentClass中使用到的自由变量
+        // 当已经合成了外部类实例的成员后就需要合成引用的自由变量所对应的成员变量了
         List<JCVariableDecl> fvdefs = freevarDefs(
+                // 当currentClass为本地类时，调用freevars()方法获取本地类中引用的自由变量，
+                // 然后调用freevarDefs()方法在本地类中合成对应的成员变量
+                // 将成员变量对应的语法树追加到tree.defs中并将相关符号填充到currentClass.members_field中
             tree.pos, freevars(currentClass), currentClass);
 
         // Recursively translate superclass, interfaces.
@@ -2317,6 +2513,13 @@ public class Lower extends TreeTranslator {
     }
 
     /** Translate an enum class. */
+    // 解枚举语法糖
+    // 例15-13
+    // Fruit枚举类经过解语法糖后就变成了一个普通的类，这个类继承了Enum<Fruit>类，Enum是所有枚举类的父类，
+    // 不过代码编写者不能为枚举类明确指定父类，包括Enum
+    // 枚举类中的常量通过new关键字初始化，为构造方法传递的$enum$name与常量名称一致，
+    // 而$enum$ordinal是从0开始，按常量声明的先后顺序依次加1。
+    // Javac会为每个枚举类生成values()与valueOf()方法，两个方法通过静态数组$VALUES实现相应的功能。
     private void visitEnumDef(JCClassDecl tree) {
         make_at(tree.pos());
 
@@ -2541,17 +2744,18 @@ public class Lower extends TreeTranslator {
             currentMethodSym = prevMethodSym;
         }
     }
-    //where
+    // 更新原有构造方法，在更新后的构造方法中初始化这些成员变量
     private void visitMethodDefInternal(JCMethodDecl tree) {
+        // 如果tree为内部类或本地类的构造方法时，需要对构造方法进行更新
         if (tree.name == names.init &&
             (currentClass.isInner() ||
              (currentClass.owner.kind & (VAR | MTH)) != 0)) {
-            // We are seeing a constructor of an inner class.
+            // 内部类的构造方法
             MethodSymbol m = tree.sym;
 
-            // Push a new proxy scope for constructor parameters.
-            // and create definitions for any this$n and proxy parameters.
+            // 从proxies中查找及保存成员变量和构造方法的形式参数
             proxies = proxies.dup(m);
+            // 从outerThisStack中查找及保存封闭类的实例变量和构造方法的形式参数
             List<VarSymbol> prevOuterThisStack = outerThisStack;
             List<VarSymbol> fvs = freevars(currentClass);
             JCVariableDecl otdef = null;
@@ -2570,10 +2774,11 @@ public class Lower extends TreeTranslator {
                 return;
             }
 
-            // Add this$n (if needed) in front of and free variables behind
-            // constructor parameter list.
+            // 向构造方法的形式参数的末尾追加能初始化自由变量对应的成员变量的参数
+            // 将fvdefs列表中的值追加到构造方法形式参数列表的末尾。
             tree.params = tree.params.appendList(fvdefs);
             if (currentClass.hasOuterInstance())
+                // 将otdef追加到构造方法形式参数列表的头部
                 tree.params = tree.params.prepend(otdef);
 
             // If this is an initial constructor, i.e., it does not start with
@@ -2584,10 +2789,15 @@ public class Lower extends TreeTranslator {
             List<JCStatement> added = List.nil();
             if (fvs.nonEmpty()) {
                 List<Type> addedargtypes = List.nil();
+                // 在构造方法中初始化合成的成员变量
                 for (List<VarSymbol> l = fvs; l.nonEmpty(); l = l.tail) {
+                    // 调用TreeInfo.isInitialConstructor()方法判断当前构造方法的第一个语句不为this(...)形式
+                    // 如果为this(...)形式，不会添加变量初始化语句。
+                    // 原因也很好理解，这个构造方法调用了另外的构造方法，如果在每个构造方法中进行初始化，那么变量就会被初始化多次
                     if (TreeInfo.isInitialConstructor(tree))
-                        added = added.prepend(
-                            initField(tree.body.pos, proxyName(l.head.name)));
+                        // 对于自由变量对应的成员变量的初始化，调用proxyName()方法得到变量名称后调用initField()方法，
+                        // 这个方法会返回初始化语句对应的语法树，将这些语法树追加到added列表中
+                        added = added.prepend(initField(tree.body.pos, proxyName(l.head.name)));
                     addedargtypes = addedargtypes.prepend(l.head.erasure(types));
                 }
                 Type olderasure = m.erasure(types);
@@ -2597,13 +2807,15 @@ public class Lower extends TreeTranslator {
                     olderasure.getThrownTypes(),
                     syms.methodClass);
             }
+            // 向构造方法的形式参数的头部追加能初始化封闭类的实例变量的参数
             if (currentClass.hasOuterInstance() &&
                 TreeInfo.isInitialConstructor(tree))
             {
+                // 调用initOuterThis()方法创建封装类的实例变量的初始化语句所对应的语法树
                 added = added.prepend(initOuterThis(tree.body.pos));
             }
 
-            // pop local variables from proxy stack
+            // 离开方法时，保存的构造方法的形式参数失效
             proxies = proxies.leave();
 
             // recursively translate following local statements and
@@ -2613,7 +2825,7 @@ public class Lower extends TreeTranslator {
                 tree.body.stats = stats.prepend(selfCall).prependList(added);
             else
                 tree.body.stats = stats.prependList(added).prepend(selfCall);
-
+            // 离开方法时，保存的构造方法的形式参数失效
             outerThisStack = prevOuterThisStack;
         } else {
             super.visitMethodDef(tree);
@@ -2630,39 +2842,44 @@ public class Lower extends TreeTranslator {
         result = tree;
     }
 
+    // 对构造方法解语法糖
     public void visitNewClass(JCNewClass tree) {
         ClassSymbol c = (ClassSymbol)tree.constructor.owner;
 
         // Box arguments, if necessary
         boolean isEnum = (tree.constructor.owner.flags() & ENUM) != 0;
         List<Type> argTypes = tree.constructor.type.getParameterTypes();
-        if (isEnum) argTypes = argTypes.prepend(syms.intType).prepend(syms.stringType);
+        if (isEnum)
+            argTypes = argTypes.prepend(syms.intType).prepend(syms.stringType);
         tree.args = boxArgs(argTypes, tree.args, tree.varargsElement);
         tree.varargsElement = null;
 
-        // If created class is local, add free variables after
-        // explicit constructor arguments.
+        // 如果c.owner为本地类，为对象创建表达式追加参数，也就是自由变量
         if ((c.owner.kind & (VAR | MTH)) != 0) {
             tree.args = tree.args.appendList(loadFreevars(tree.pos(), freevars(c)));
         }
 
-        // If an access constructor is used, append null as a last argument.
+        // 如果使用访问构造函数，则附加 null 作为最后一个参数
+        // 例15-15
+        // 首先调用accessConstructor()方法获取constructor，
+        // 这个对象对于实例15-15来说就是Outer类中的合成构造方法。
+        // 如果constructor与原来的tree.constructor不一样，说明这是一个合成的构造方法，
+        // 需要将之前的调用私有构造方法改为调用合成的构造方法，在调用时向实际参数列表末尾追加一个null参数，
+        // 然后将tree.constructor更新为constructor
         Symbol constructor = accessConstructor(tree.pos(), tree.constructor);
         if (constructor != tree.constructor) {
             tree.args = tree.args.append(makeNull());
             tree.constructor = constructor;
         }
 
-        // If created class has an outer instance, and new is qualified, pass
-        // qualifier as first argument. If new is not qualified, pass the
-        // correct outer instance as first argument.
+        // 如果cs有封闭类实例，为对象创建表达式追加参数，也就是封闭类的实例
         if (c.hasOuterInstance()) {
             JCExpression thisArg;
             if (tree.encl != null) {
                 thisArg = attr.makeNullCheck(translate(tree.encl));
                 thisArg.type = tree.encl.type;
             } else if ((c.owner.kind & (MTH | VAR)) != 0) {
-                // local class
+                // 调用makeThis()方法合成外部类的实例对应的语法树
                 thisArg = makeThis(tree.pos(), c.type.getEnclosingType().tsym);
             } else {
                 // nested class
@@ -2720,14 +2937,33 @@ public class Lower extends TreeTranslator {
 
     /** Visitor method for if statements.
      */
+    // 解条件编译语法糖
+    /*
+    public void test() {
+        if (true) {
+            System.out.println("true");
+        } else {
+            System.out.println("false");
+        }
+    }
+    解语法糖后为：
+    {
+        System.out.println("true");
+    }
+     */
     public void visitIf(JCIf tree) {
         JCTree cond = tree.cond = translate(tree.cond, syms.booleanType);
         if (cond.type.isTrue()) {
+            // 当if语句的条件判断表达式的结果为常量值true时
+            // 调用translate()方法处理tree.thenpart
             result = translate(tree.thenpart);
         } else if (cond.type.isFalse()) {
+            // 当if语句的条件判断表达式的结果为常量值false时
             if (tree.elsepart != null) {
+                // 如果elsepart不为空，调用translate()方法处理tree.elsepart
                 result = translate(tree.elsepart);
             } else {
+                // tree.elsepart为空，则跳过
                 result = make.Skip();
             }
         } else {
@@ -2839,7 +3075,9 @@ public class Lower extends TreeTranslator {
         result = tree;
     }
 
+    // 解变长参数语法糖
     List<JCExpression> boxArgs(List<Type> parameters, List<JCExpression> _args, Type varargsElement) {
+        // 如果调用的方法最后一个参数为变长参数，则varargsElement不为空
         List<JCExpression> args = _args;
         if (parameters.isEmpty()) return args;
         boolean anyChanges = false;
@@ -2877,20 +3115,28 @@ public class Lower extends TreeTranslator {
 
     /** Expand a boxing or unboxing conversion if needed. */
     @SuppressWarnings("unchecked") // XXX unchecked
+    // boxIfNeeded()方法中完成类型拆箱转换与类型装箱转换
+    // tree.type为原类型，参数type看为目标类型
     <T extends JCTree> T boxIfNeeded(T tree, Type type) {
         boolean havePrimitive = tree.type.isPrimitive();
         if (havePrimitive == type.isPrimitive())
+            // 当两个都是基本类型或引用类型时不需要进行任何操作
             return tree;
         if (havePrimitive) {
+            // 当原类型为基本类型而目标类型为引用类型时，需要对原类型进行类型装箱转换
             Type unboxedTarget = types.unboxedType(type);
+            // 当unboxedTarget等于NONE时，也就是调用types.unboxedType()方法找不到type对应的基本类型
             if (unboxedTarget.tag != NONE) {
                 if (!types.isSubtype(tree.type, unboxedTarget)) //e.g. Character c = 89;
+                    // Character x = 89;  -> Character c = Character.valueOf(89);
+                    // Object x = 1; -> Object x = Integer.valueOf(1);
                     tree.type = unboxedTarget.constType(tree.type.constValue());
                 return (T)boxPrimitive((JCExpression)tree, type);
             } else {
                 tree = (T)boxPrimitive((JCExpression)tree);
             }
         } else {
+            // 当原类型为引用类型而目标类型为基本类型时，需要对原类型进行类型拆箱转换
             tree = (T)unbox((JCExpression)tree, type);
         }
         return tree;
@@ -2898,10 +3144,12 @@ public class Lower extends TreeTranslator {
 
     /** Box up a single primitive expression. */
     JCExpression boxPrimitive(JCExpression tree) {
+        // 根据types.boxedClass(tree.type).type反推tree的装箱类型
         return boxPrimitive(tree, types.boxedClass(tree.type).type);
     }
 
     /** Box up a single primitive expression. */
+    // 基本类型装箱 返回表达式
     JCExpression boxPrimitive(JCExpression tree, Type box) {
         make_at(tree.pos());
         if (target.boxWithConstructors()) {
@@ -2911,6 +3159,7 @@ public class Lower extends TreeTranslator {
                                             .prepend(tree.type));
             return make.Create(ctor, List.of(tree));
         } else {
+            // 调用loopkupMethod()方法在box类型中查找一个名称为valueOf的方法
             Symbol valueOfSym = lookupMethod(tree.pos(),
                                              names.valueOf,
                                              box,
@@ -2921,6 +3170,7 @@ public class Lower extends TreeTranslator {
     }
 
     /** Unbox an object to a primitive value. */
+    // 装箱类型拆箱
     JCExpression unbox(JCExpression tree, Type primitive) {
         Type unboxedType = types.unboxedType(tree.type);
         if (unboxedType.tag == NONE) {
@@ -2935,6 +3185,8 @@ public class Lower extends TreeTranslator {
                 throw new AssertionError(tree);
         }
         make_at(tree.pos());
+        // unboxedType为int类型，则在tree.type中查找名称为intValue的方法，
+        // 方法名由基本类型的名称追加Value字符串组成
         Symbol valueSym = lookupMethod(tree.pos(),
                                        unboxedType.tsym.name.append(names.Value), // x.intValue()
                                        tree.type,
@@ -3123,15 +3375,20 @@ public class Lower extends TreeTranslator {
         result = tree;
     }
 
+    // visitIdent()方法更新本地类中引用自由变量的方式，替换为引用合成的成员变量
     public void visitIdent(JCIdent tree) {
         result = access(tree.sym, tree, enclOp, false);
     }
 
     /** Translate away the foreach loop.  */
+    // 访问增强for循环 解语法糖
     public void visitForeachLoop(JCEnhancedForLoop tree) {
         if (types.elemtype(tree.expr.type) == null)
+            // visitIterableForeachLoop()方法对遍历容器的foreach语句解语法糖
             visitIterableForeachLoop(tree);
         else
+            // visitArrayForeachLoop()方法对遍历数组的foreach语句解语法糖
+            // 例15-6
             visitArrayForeachLoop(tree);
     }
         // where
@@ -3156,6 +3413,8 @@ public class Lower extends TreeTranslator {
          *
          * where #arr, #len, and #i are freshly named synthetic local variables.
          */
+        // 数组的增强for解语法糖
+        // 按照一定的形式重新生成新的语法树结构即可，并将最终生成的语法树节点赋值给result
         private void visitArrayForeachLoop(JCEnhancedForLoop tree) {
             make_at(tree.expr.pos());
             VarSymbol arraycache = new VarSymbol(0,
@@ -3198,6 +3457,7 @@ public class Lower extends TreeTranslator {
                                        cond,
                                        List.of(step),
                                        body));
+            // 调用patchTargets()方法更新foreach语句body体中break与continue的跳转目标
             patchTargets(body, tree, result);
         }
         /** Patch up break and continue targets. */
@@ -3233,6 +3493,10 @@ public class Lower extends TreeTranslator {
          *
          * where #i is a freshly named synthetic local variable.
          */
+        // 容器类型的增强for循环，解语法糖
+        // 参数list的类型必须直接或间接实现Iterable接口，这样才能通过foreach语句循环遍历
+        // 只要按照一定的形式重新生成新的语法树结构即可，
+        // 同时也会调用patchTargets()方法更新foreach语句body体中break与continue的跳转目标
         private void visitIterableForeachLoop(JCEnhancedForLoop tree) {
             make_at(tree.expr.pos());
             Type iteratorTarget = syms.objectType;
@@ -3341,7 +3605,11 @@ public class Lower extends TreeTranslator {
         result = tree;
     }
 
+    // 解Switch语法的语法糖
+    // switch语句中的选择表达式的类型可以是Enum类型、String类型或int类型，如果为Enum与String类型，需要在visitSwitch()方法中解语法糖
     public void visitSwitch(JCSwitch tree) {
+        // 调用types.supertype()方法获取tree.selector.type的父类，通过父类来判断选择表达式的类型是否为枚举类，
+        // 因为任何一个枚举类默认都会继承Enum类
         Type selsuper = types.supertype(tree.selector.type);
         boolean enumSwitch = selsuper != null &&
             (tree.selector.type.tsym.flags() & ENUM) != 0;
@@ -3352,16 +3620,24 @@ public class Lower extends TreeTranslator {
         tree.selector = translate(tree.selector, target);
         tree.cases = translateCases(tree.cases);
         if (enumSwitch) {
+            // enum类型switch表达式解语法糖
             result = visitEnumSwitch(tree);
         } else if (stringSwitch) {
+            // string类型Switch表达式解语法糖
             result = visitStringSwitch(tree);
         } else {
             result = tree;
         }
     }
 
+    // 枚举类型表达式的Switch解语法糖
+    // 当switch语句的选择表达式的类型为枚举类时，将枚举常量映射为整数，
+    // 这个关系由一个匿名类Test$1中定义的一个静态数组保存。通过Test$1的静态匿名块可看到对静态数组的初始化过程，
+    // 各个枚举常量的ordinal作为数组下标，值为一个对应的整数值，这个整数值从1开始递增
+    // 例15-8
     public JCTree visitEnumSwitch(JCSwitch tree) {
         TypeSymbol enumSym = tree.selector.type.tsym;
+        // 根据enumSym获取一个EnumMapping对象map
         EnumMapping map = mapForEnum(tree.pos(), enumSym);
         make_at(tree.pos());
         Symbol ordinalMethod = lookupMethod(tree.pos(),
@@ -3371,10 +3647,13 @@ public class Lower extends TreeTranslator {
         JCArrayAccess selector = make.Indexed(map.mapVar,
                                         make.App(make.Select(tree.selector,
                                                              ordinalMethod)));
+        // 创建好switch语句的selector后就需要更新各个分支
         ListBuffer<JCCase> cases = new ListBuffer<JCCase>();
         for (JCCase c : tree.cases) {
+            // c.pat不为空时表示非默认分支，创建新的引用形式
             if (c.pat != null) {
                 VarSymbol label = (VarSymbol)TreeInfo.symbol(c.pat);
+                // 调用map.forConstant()方法得到此分支的整数值
                 JCLiteral pat = map.forConstant(label);
                 cases.append(make.Case(pat, c.stats));
             } else {
@@ -3382,10 +3661,18 @@ public class Lower extends TreeTranslator {
             }
         }
         JCSwitch enumSwitch = make.Switch(selector, cases.toList());
+        // 但由于switch语句中可能会出现break语句，所以调用patchTargets()方法更新跳转目标
         patchTargets(enumSwitch, tree, enumSwitch);
         return enumSwitch;
     }
 
+    // String类型的Switch表达式解语法糖
+    // 例15-9
+    // 解语法糖过程是利用字符串的哈希值的唯一性做了字符串到整数的映射，
+    // 最终还是将字符串类型的选择表达式转换为int类型的选择表达式，
+    // 因为在字符码指令的生成过程中，switch语句会选择tableswitch或lookupswitch指令来实现，
+    // 而这两个指令的索引值只支持整数，这样处理可以更好地生成字节码。
+    // visitStringSwitch()方法通过一定规则重新生成语法树结构，同时也会对switch语句中的各个分支调用patchTargets()方法更新break的跳转目标
     public JCTree visitStringSwitch(JCSwitch tree) {
         List<JCCase> caseList = tree.getCases();
         int alternatives = caseList.size();
@@ -3393,46 +3680,6 @@ public class Lower extends TreeTranslator {
         if (alternatives == 0) { // Strange but legal possibility
             return make.at(tree.pos()).Exec(attr.makeNullCheck(tree.getExpression()));
         } else {
-            /*
-             * The general approach used is to translate a single
-             * string switch statement into a series of two chained
-             * switch statements: the first a synthesized statement
-             * switching on the argument string's hash value and
-             * computing a string's position in the list of original
-             * case labels, if any, followed by a second switch on the
-             * computed integer value.  The second switch has the same
-             * code structure as the original string switch statement
-             * except that the string case labels are replaced with
-             * positional integer constants starting at 0.
-             *
-             * The first switch statement can be thought of as an
-             * inlined map from strings to their position in the case
-             * label list.  An alternate implementation would use an
-             * actual Map for this purpose, as done for enum switches.
-             *
-             * With some additional effort, it would be possible to
-             * use a single switch statement on the hash code of the
-             * argument, but care would need to be taken to preserve
-             * the proper control flow in the presence of hash
-             * collisions and other complications, such as
-             * fallthroughs.  Switch statements with one or two
-             * alternatives could also be specially translated into
-             * if-then statements to omit the computation of the hash
-             * code.
-             *
-             * The generated code assumes that the hashing algorithm
-             * of String is the same in the compilation environment as
-             * in the environment the code will run in.  The string
-             * hashing algorithm in the SE JDK has been unchanged
-             * since at least JDK 1.2.  Since the algorithm has been
-             * specified since that release as well, it is very
-             * unlikely to be changed in the future.
-             *
-             * Different hashing algorithms, such as the length of the
-             * strings or a perfect hashing algorithm over the
-             * particular set of case labels, could potentially be
-             * used instead of String.hashCode.
-             */
 
             ListBuffer<JCStatement> stmtList = new ListBuffer<JCStatement>();
 
@@ -3467,28 +3714,6 @@ public class Lower extends TreeTranslator {
                 }
                 casePosition++;
             }
-
-            // Synthesize a switch statement that has the effect of
-            // mapping from a string to the integer position of that
-            // string in the list of case labels.  This is done by
-            // switching on the hashCode of the string followed by an
-            // if-then-else chain comparing the input for equality
-            // with all the case labels having that hash value.
-
-            /*
-             * s$ = top of stack;
-             * tmp$ = -1;
-             * switch($s.hashCode()) {
-             *     case caseLabel.hashCode:
-             *         if (s$.equals("caseLabel_1")
-             *           tmp$ = caseLabelToPosition("caseLabel_1");
-             *         else if (s$.equals("caseLabel_2"))
-             *           tmp$ = caseLabelToPosition("caseLabel_2");
-             *         ...
-             *         break;
-             * ...
-             * }
-             */
 
             VarSymbol dollar_s = new VarSymbol(FINAL|SYNTHETIC,
                                                names.fromString("s" + tree.pos + target.syntheticNameChar()),
@@ -3539,15 +3764,9 @@ public class Lower extends TreeTranslator {
             switch1.cases = caseBuffer.toList();
             stmtList.append(switch1);
 
-            // Make isomorphic switch tree replacing string labels
-            // with corresponding integer ones from the label to
-            // position map.
-
             ListBuffer<JCCase> lb = ListBuffer.lb();
             JCSwitch switch2 = make.Switch(make.Ident(dollar_tmp), lb.toList());
             for(JCCase oneCase : caseList ) {
-                // Rewire up old unlabeled break statements to the
-                // replacement switch being created.
                 patchTargets(oneCase, tree, switch2);
 
                 boolean isDefault = (oneCase.getExpression() == null);
@@ -3607,10 +3826,13 @@ public class Lower extends TreeTranslator {
     }
 
     @Override
+    // 扩展try-with-resources解语法糖解析
     public void visitTry(JCTry tree) {
         if (tree.resources.isEmpty()) {
             super.visitTry(tree);
         } else {
+            // 当tree.resources不为空时，
+            // 调用makeTwrTry()方法对扩展try-with-resources解语法糖
             result = makeTwrTry(tree);
         }
     }
@@ -3625,6 +3847,7 @@ public class Lower extends TreeTranslator {
      *               We need this for resolving some additional symbols.
      *  @param cdef  The tree representing the class definition.
      */
+    // 生成顶级类
     public List<JCTree> translateTopLevelClass(Env<AttrContext> env, JCTree cdef, TreeMaker make) {
         ListBuffer<JCTree> translated = null;
         try {
@@ -3648,9 +3871,12 @@ public class Lower extends TreeTranslator {
             accessConstrTags = List.nil();
             accessed = new ListBuffer<Symbol>();
             translate(cdef, (JCExpression)null);
+            // 循环所有可访问的符号，标注到语法树上
             for (List<Symbol> l = accessed.toList(); l.nonEmpty(); l = l.tail)
                 makeAccessible(l.head);
+            // 为枚举类型的Switch表达式生成赋值顶级类
             for (EnumMapping map : enumSwitchMap.values())
+                // 调用map.translate()方法创建匿名类
                 map.translate();
             checkConflicts(this.translated.toList());
             checkAccessConstructorTags();

@@ -447,13 +447,18 @@ public class Check {
         return checkType(pos, found, req, "incompatible.types");
     }
 
+    // 验证类型的兼容性
     Type checkType(DiagnosticPosition pos, Type found, Type req, String errKey) {
         if (req.tag == ERROR)
             return req;
+        // 泛型类型兼容性检查
         if (found.tag == FORALL)
             return instantiatePoly(pos, (ForAll)found, req, convertWarner(pos, found, req));
+        // 当req.tag的值为NONE时，表示对类型没有任何的期望，直接返回实际类型即可
         if (req.tag == NONE)
             return found;
+        // 调用types.isAssignable()方法判断类型的兼容性
+        // 如果isAssignable()方法返回false，表示类型不兼容，调用typeError()方法创建一个ErrorType对象并返回
         if (types.isAssignable(found, req, convertWarner(pos, found, req)))
             return found;
         if (found.tag <= DOUBLE && req.tag <= DOUBLE)
@@ -473,16 +478,26 @@ public class Check {
      *  prototype is `anyPoly' in which case polymorphic type
      *  is returned unchanged.
      */
+    // 将泛型类型实例化为某个原型，除非原型是“anyPoly”，在这种情况下，多态类型将原样返回。
     Type instantiatePoly(DiagnosticPosition pos, ForAll t, Type pt, Warner warn) throws Infer.NoInstanceException {
+        // 当期望的类型为Infer.anyPoly时，表示不对类型有任何期望，如只调用方法而不接收任何返回值时不对类型有任何期望
         if (pt == Infer.anyPoly && complexInference) {
             return t;
         } else if (pt == Infer.anyPoly || pt.tag == NONE) {
+            // 创建一个新的期望newpt，然后调用instantiatePoly()方法进行类型推断
+            /*
+            其实在instantiatePoly()方法中一般也会调用instantiateExpr()方法进行类型推断，
+            之所以需要创建新的newpt，是因为方法调用不在一个赋值表达式中。不能结合赋值表达式左侧类型声明的相关信息。
+            为了进行类型推断，假设左侧的类型为newp，当t.qtype为void或基本类型时，newpt也为void或基本类型，
+            当为引用类型时，newpt为Object类型，相当于将调用方法的返回值赋值给了一个类型声明为newpt的变量。
+             */
             Type newpt = t.qtype.tag <= VOID ? t.qtype : syms.objectType;
             return instantiatePoly(pos, t, newpt, warn);
         } else if (pt.tag == ERROR) {
             return pt;
         } else {
             try {
+                // 否则调用infer.instantiateExpr()方法进行推断
                 return infer.instantiateExpr(t, pt, warn);
             } catch (Infer.NoInstanceException ex) {
                 if (ex.isAmbiguous) {
@@ -535,18 +550,32 @@ public class Check {
      *
      *  Used in TypeApply to verify that, e.g., X in V<X> is a valid
      *  type argument.
+     *  在 TypeApply 中用于验证，例如，V<X> 中的 X 是一个有效的类型参数
      *  @param a             The type that should be bounded by bs.
      *  @param bs            The bound.
      */
+    // 检查类型是否在某个范围内
     private boolean checkExtends(Type a, TypeVar bs) {
          if (a.isUnbound()) {
+             // 实际类型参数的类型为无界通配符类型
+             // 界通配符可以看作是任何一个引用类型，所以与bs一定有共同的类，方法返回true
              return true;
          } else if (a.tag != WILDCARD) {
+             // 实际类型参数的类型为非通配符类型
+             // 实际类型参数的类型a为非通配符类型时，判断a的上界是否为bs上界的子类即可
+             // 当a为非类型变量，调用types.upperBound()方法返回自身
              a = types.upperBound(a);
+             // 否则返回类型变量的上界
              return types.isSubtype(a, bs.bound);
          } else if (a.isExtendsBound()) {
+             // 实际类型参数的类型为上界通配符类型
+             // 如果bs的上界能够强制类型转换为a的上界，那么两个类型就有共同的类型交集，方法返回true
              return types.isCastable(bs.getUpperBound(), types.upperBound(a), Warner.noWarnings);
          } else if (a.isSuperBound()) {
+             // 实际类型参数的类型为下界通配符类型
+             // 调用types.notSoftSubtype()方法判断a的下界与bs上界的关系
+             // 因为a是通配符下界，调用types.lowerBound()方法获取到的可能是TypeVar或ClassType对象
+             // 然后调用Types类中的notSoftSubtype()方法进行判断
              return !types.notSoftSubtype(types.lowerBound(a), bs.getUpperBound());
          }
          return true;
@@ -790,20 +819,25 @@ public class Check {
         return firstIncompatibleTypeArg(t) == null;
     }
     //WHERE
+    // 检查泛型类型
+    // 如果调用firstIncompatibleTypeArg()方法返回一个Type对象，
+    // 表示第一个被检查出的、不在声明的上界范围内的实际类型参数；
+    // 如果方法返回null，表示实际类型参数都在上界之内
         private Type firstIncompatibleTypeArg(Type type) {
             List<Type> formals = type.tsym.type.allparams();
             List<Type> actuals = type.allparams();
             List<Type> args = type.getTypeArguments();
             List<Type> forms = type.tsym.type.getTypeArguments();
+            // 当前类型参数化类型替换列表
             ListBuffer<Type> tvars_buf = new ListBuffer<Type>();
 
-            // For matching pairs of actual argument types `a' and
-            // formal type parameters with declared bound `b' ...
+
             while (args.nonEmpty() && forms.nonEmpty()) {
-                // exact type arguments needs to know their
-                // bounds (for upper and lower bound
-                // calculations).  So we create new TypeVars with
-                // bounds substed with actuals.
+                // 参数type一般都是参数化类型，为了更好地验证实际类型参数是否符合要求，
+                // 首先需要对形式类型参数中的上界做一次替换，
+                // 具体就是将上界中含有的形式类型参数中声明的类型变量替换为实际类型参数的类型
+                // 最终的目的是为了使用同一个对象表示同一个类型变量，这样有利于后续的类型比较
+                // 例13-2
                 tvars_buf.append(types.substBound(((TypeVar)forms.head),
                                                   formals,
                                                   actuals));
@@ -831,6 +865,7 @@ public class Check {
                     tvars_buf.toList());
                 if (!isTypeArgErroneous(actual) &&
                         !tvars.head.getUpperBound().isErroneous() &&
+                        // 检查实际类型参数的类型是否符合要求
                         !checkExtends(actual, (TypeVar)tvars.head)) {
                     return args.head;
                 }
@@ -1057,6 +1092,7 @@ public class Check {
      * Visitor method: Validate a type expression, if it is not null, catching
      *  and reporting any completion failures.
      */
+    // Check类的validate()方法最终会调用firstIncompatibleTypeArg()方法对参数化类型进行检查。
     void validate(JCTree tree, Env<AttrContext> env) {
         validate(tree, env, true);
     }
@@ -1237,6 +1273,7 @@ public class Check {
 
     /** Remove type set from type set list.
      */
+    // 从ts列表中排除含有的t或t的子类型
     List<Type> excl(Type t, List<Type> ts) {
         if (ts.isEmpty()) {
             return ts;
@@ -1268,6 +1305,7 @@ public class Check {
 
     /** Form the difference of two type lists.
      */
+    // 返回ts1和ts2的差集
     List<Type> diff(List<Type> ts1, List<Type> ts2) {
         List<Type> ts = ts1;
         for (List<Type> l = ts2; l.nonEmpty(); l = l.tail)
@@ -1296,9 +1334,10 @@ public class Check {
      */
     boolean isUnchecked(ClassSymbol exc) {
         return
-                // 为Error或RuntimeException类型或者是两个类的子类时，表示这个异常类是非检查异常
+            // 为Error或RuntimeException类型或者是两个类的子类时，表示这个异常类是非检查异常
             exc.kind == ERR ||
             exc.isSubClass(syms.errorType.tsym, types) ||
+            // 当exc为错误相关的类或RuntimeException类型时，方法返回true，表示是非检查异常
             exc.isSubClass(syms.runtimeExceptionType.tsym, types);
     }
 
@@ -1306,9 +1345,12 @@ public class Check {
      */
     boolean isUnchecked(Type exc) {
         return
+            // 当exc为类型变量时，求类型变量的父类并递归调用isUnchecked()方法判断是否为非检查异常
             (exc.tag == TYPEVAR) ? isUnchecked(types.supertype(exc)) :
-                    // 当exc.tag的值为CLASS时还会调用另外一个重载的isUnchecked()方法
+            // 当exc.tag的值为CLASS时还会调用另外一个重载的isUnchecked()方法
+            // 当exc为类或接口时，调用另一个重载的isUnchecked()方法判断是否为非检查异常
             (exc.tag == CLASS) ? isUnchecked((ClassSymbol)exc.tsym) :
+            // 当exc为null时，方法返回true，表示是非检查异常，剩下的其他类型都是受检查异常。
             exc.tag == BOT;
     }
 

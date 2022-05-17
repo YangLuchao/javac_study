@@ -55,6 +55,7 @@ import static com.sun.tools.javac.main.OptionName.*;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// Gen类继承了JCTree.Visitor类并覆写了visitXxx()方法，可以根据标注语法树生成对应的字节码指令
 public class Gen extends JCTree.Visitor {
     protected static final Context.Key<Gen> genKey =
         new Context.Key<Gen>();
@@ -449,44 +450,50 @@ public class Gen extends JCTree.Visitor {
      *  @param defs         The list of class member declarations.
      *  @param c            The enclosing class.
      */
+    // 重构<init>方法和<clinit>方法，辅助后续的字节码指令生成
     List<JCTree> normalizeDefs(List<JCTree> defs, ClassSymbol c) {
         ListBuffer<JCStatement> initCode = new ListBuffer<JCStatement>();
         ListBuffer<JCStatement> clinitCode = new ListBuffer<JCStatement>();
         ListBuffer<JCTree> methodDefs = new ListBuffer<JCTree>();
-        // Sort definitions into three listbuffers:
-        //  - initCode for instance initializers
-        //  - clinitCode for class initializers
-        //  - methodDefs for method definitions
+        // 将定义分类为三个列表缓冲区：
+        // - 实例初始化程序的 initCode
+        // - 类初始化程序的 clinitCode
+        // - 方法定义的 methodDefs
         for (List<JCTree> l = defs; l.nonEmpty(); l = l.tail) {
             JCTree def = l.head;
             switch (def.getTag()) {
-            case JCTree.BLOCK:
+            case JCTree.BLOCK: // 对括号的重构
+                // normalizeDefs()方法对匿名块重构的实现
                 JCBlock block = (JCBlock)def;
+                // 这样块的花括号可以形成一个作用域，能更好地避免块之间及块与方法中相关定义的冲突，也能更好地完成初始化工作
                 if ((block.flags & STATIC) != 0)
+                    // 将静态匿名块追加到<clinit>方法中，
                     clinitCode.append(block);
                 else
+                    // 将非静态匿名块追加到<init>方法
                     initCode.append(block);
                 break;
             case JCTree.METHODDEF:
                 methodDefs.append(def);
                 break;
-            case JCTree.VARDEF:
+            case JCTree.VARDEF: // 对变量的重构
                 JCVariableDecl vdef = (JCVariableDecl) def;
                 VarSymbol sym = vdef.sym;
                 checkDimension(vdef.pos(), sym.type);
+                // 对变量进行了初始化（vdef.init不为空）
                 if (vdef.init != null) {
                     if ((sym.flags() & STATIC) == 0) {
-                        // Always initialize instance variables.
+                        // 对于实例变量来说，创建JCAssign树节点后追加到<init>方法中
                         JCStatement init = make.at(vdef.pos()).
                             Assignment(sym, vdef.init);
                         initCode.append(init);
                         if (endPositions != null) {
                             Integer endPos = endPositions.remove(vdef);
-                            if (endPos != null) endPositions.put(init, endPos);
+                            if (endPos != null)
+                                endPositions.put(init, endPos);
                         }
                     } else if (sym.getConstValue() == null) {
-                        // Initialize class (static) variables only if
-                        // they are not compile-time constants.
+                        // 对于静态变量来说，如果在编译期不能确定具体的值，同样会创建JCAssign树节点并追加到<clinit>方法中
                         JCStatement init = make.at(vdef.pos).
                             Assignment(sym, vdef.init);
                         clinitCode.append(init);
@@ -503,15 +510,15 @@ public class Gen extends JCTree.Visitor {
                 Assert.error();
             }
         }
-        // Insert any instance initializers into all constructors.
+        // 调整完成后还需要循环构造方法，处理<init>方法
         if (initCode.length() != 0) {
             List<JCStatement> inits = initCode.toList();
             for (JCTree t : methodDefs) {
+                // 如果一个类中有多个构造方法，则需要将initCode列表中的内容追加到<init>方法中
                 normalizeMethod((JCMethodDecl)t, inits);
             }
         }
-        // If there are class initializers, create a <clinit> method
-        // that contains them as its body.
+        // 处理<clinit>方法
         if (clinitCode.length() != 0) {
             MethodSymbol clinit = new MethodSymbol(
                 STATIC, names.clinit,
@@ -547,7 +554,11 @@ public class Gen extends JCTree.Visitor {
      *                   constructor's definition.
      *  @param initCode  The list of instance initializer statements.
      */
+    // 将初始化语句及非静态匿名块插入到构造方法中
     void normalizeMethod(JCMethodDecl md, List<JCStatement> initCode) {
+        // 不对首个形式为this(...)语句的构造方法追加内容，也就是如果有this(...)形式的语句，
+        // 则调用TreeInfo类的isInitialConstructor()方法将返回false
+        // 主要还是保证在创建对应类的对象时，能够执行initCode列表中的语句而且只执行一次
         if (md.name == names.init && TreeInfo.isInitialConstructor(md)) {
             // We are seeing a constructor that does not call another
             // constructor of the same class.
@@ -562,6 +573,7 @@ public class Gen extends JCTree.Visitor {
                     stats = stats.tail;
                 }
                 // Copy superclass constructor call
+                // 需要注意的是，在向newstats列表中追加语句时需要严格保证语句的顺序。
                 newstats.append(stats.head);
                 stats = stats.tail;
                 // Copy remaining synthetic initializers.
@@ -571,6 +583,7 @@ public class Gen extends JCTree.Visitor {
                     stats = stats.tail;
                 }
                 // Now insert the initializer code.
+                // 将初始化语句及非静态匿名块插入到构造方法中
                 newstats.appendList(initCode);
                 // And copy all remaining statements.
                 while (stats.nonEmpty()) {
@@ -662,14 +675,17 @@ public class Gen extends JCTree.Visitor {
 
     /** Visitor argument: The current environment.
      */
+    // 当前环境
     Env<GenContext> env;
 
     /** Visitor argument: The expected type (prototype).
      */
+    // 期望的类型
     Type pt;
 
     /** Visitor result: The item representing the computed value.
      */
+    // 实际的类型
     Item result;
 
     /** Visitor method: generate code for a definition, catching and reporting
@@ -677,6 +693,8 @@ public class Gen extends JCTree.Visitor {
      *  @param tree    The definition to be visited.
      *  @param env     The environment current at the definition.
      */
+    // 调用genDef()方法对cdef中定义的每个成员进行处理，如果成员为方法就会为方法生成字节码指令
+    // Gen类只会为方法生成字节码指令，但是一个类中的成员变量与块中也会含有需要生成字节码指令的表达式或语句，
     public void genDef(JCTree tree, Env<GenContext> env) {
         Env<GenContext> prevEnv = this.env;
         try {
@@ -700,6 +718,7 @@ public class Gen extends JCTree.Visitor {
      *  @param  crtFlags The CharacterRangeTable flags
      *                   indicating type of the entry.
      */
+    // 遍历语句
     public void genStat(JCTree tree, Env<GenContext> env, int crtFlags) {
         if (!genCrt) {
             genStat(tree, env);
@@ -713,6 +732,7 @@ public class Gen extends JCTree.Visitor {
 
     /** Derived visitor method: generate code for a statement.
      */
+    // 遍历语句
     public void genStat(JCTree tree, Env<GenContext> env) {
         if (code.isAlive()) {
             code.statBegin(tree.pos);
@@ -751,6 +771,7 @@ public class Gen extends JCTree.Visitor {
 
     /** Derived visitor method: generate code for a list of statements.
      */
+    // 遍历语句
     public void genStats(List<? extends JCTree> trees, Env<GenContext> env) {
         for (List<? extends JCTree> l = trees; l.nonEmpty(); l = l.tail)
             genStat(l.head, env, CRT_STATEMENT);
@@ -825,6 +846,8 @@ public class Gen extends JCTree.Visitor {
      *  @param tree    The expression to be visited.
      *  @param pt      The expression's expected type (proto-type).
      */
+    // 遍历方法表达式
+    // tree 语法树m,pt 期望类型
     public Item genExpr(JCTree tree, Type pt) {
         Type prevPt = this.pt;
         try {
@@ -851,6 +874,7 @@ public class Gen extends JCTree.Visitor {
      *  @param pts      The expression's expected types (i.e. the formal parameter
      *                  types of the invoked method).
      */
+    // 遍历参数
     public void genArgs(List<JCExpression> trees, List<Type> pts) {
         for (List<JCExpression> l = trees; l.nonEmpty(); l = l.tail) {
             genExpr(l.head, pts.head).load();
@@ -1009,6 +1033,8 @@ public class Gen extends JCTree.Visitor {
             return startpcCrt;
         }
 
+    // 访问本地变量
+    // 例16-3
     public void visitVarDef(JCVariableDecl tree) {
         VarSymbol v = tree.sym;
         code.newLocal(v);
@@ -1624,8 +1650,9 @@ public class Gen extends JCTree.Visitor {
         code.endScopes(limit);
     }
 
+    // 访问表达式
     public void visitExec(JCExpressionStatement tree) {
-        // Optimize x++ to ++x and x-- to --x.
+        // 首先将后缀自增与自减的语句更改为前置自增与自减，这样可以简化处理，同时也是等价变换
         JCExpression e = tree.expr;
         switch (e.getTag()) {
             case JCTree.POSTINC:
@@ -1635,6 +1662,9 @@ public class Gen extends JCTree.Visitor {
                 ((JCUnary) e).setTag(JCTree.PREDEC);
                 break;
         }
+        // 调用genExpr()方法处理表达式
+        // tree.expr.type：期望类型直接从标注语法树中获取即可
+        // tree.expr：树节点
         genExpr(tree.expr, tree.expr.type).drop();
     }
 
@@ -1652,17 +1682,24 @@ public class Gen extends JCTree.Visitor {
         endFinalizerGaps(env, targetEnv);
     }
 
+    // 访问return树节点
     public void visitReturn(JCReturn tree) {
         int limit = code.nextreg;
         final Env<GenContext> targetEnv;
         if (tree.expr != null) {
+            // 例16-3 调用genExpr()方法处理JCIdent(a)节点，则会返回LocalItem(type=int; reg=1)；调用load()方法将局部变量表中指定索引位置1的数加载到操作数栈中，会生成iload_1指令
+            // 例16-9 调用genExpr()方法处理JCUnary(arr[a]++)树节点，得到StackItem对象，这是表示arr[a]的值已经在栈内，因此调用这个对象的load()方法无操作，最后会生成ireturn指令
             Item r = genExpr(tree.expr, pt).load();
             if (hasFinally(env.enclMethod, env)) {
                 r = makeTemp(pt);
                 r.store();
             }
             targetEnv = unwind(env.enclMethod, env);
+            // LocalItem类的load()方法最终会返回一个StackItem对象，调用此对象的load()方法就是返回自身。
+            // 之所以再次调用，是因为像LocalItem这样的对象，其load()方法表示的含义并不是加载数据到操作数栈中
             r.load();
+            // visitReturn()方法最后根据pt的不同选择生成具体的ireturn指令，表示返回一个整数类型的值
+            // 从当前方法返回int
             code.emitop0(ireturn + Code.truncate(Code.typecode(pt)));
         } else {
             targetEnv = unwind(env.enclMethod, env);
@@ -1683,12 +1720,14 @@ public class Gen extends JCTree.Visitor {
 
     public void visitApply(JCMethodInvocation tree) {
         // Generate code for method.
+        // 例16-8 调用genExpr()方法处理JCIdent(super)树节点，最终返回MemberItem(member.name=Object，nonvirtual=true)对象
         Item m = genExpr(tree.meth, methodType);
         // Generate code for all arguments, where the expected types are
         // the parameters of the method's external type (that is, any implicit
         // outer instance of a super(...) call appears as first parameter).
         genArgs(tree.args,
                 TreeInfo.symbol(tree.meth).externalType(types).getParameterTypes());
+        // 例16-8 调用这个对象的invoke()方法生成方法调用的相关指令
         result = m.invoke();
     }
 
@@ -1781,9 +1820,14 @@ public class Gen extends JCTree.Visitor {
         result = genExpr(tree.expr, tree.expr.type);
     }
 
+    // 访问赋值表达式v
     public void visitAssign(JCAssign tree) {
+        // 创建对应的item节点并返回
         Item l = genExpr(tree.lhs, tree.lhs.type);
+        // 当调用genExpr()方法处理JCBinary(a+1)树节点时，会调用visitBinary()方法，该方法返回一个StackItem对象
+        // 表示栈中a+1执行后会产生一个int类型的数值
         genExpr(tree.rhs, tree.lhs.type).load();
+        // 将l作为参数调用items.makeAssignItem()方法创建一个AssignItem对象并赋值给result。
         result = items.makeAssignItem(l);
     }
 
@@ -1837,30 +1881,35 @@ public class Gen extends JCTree.Visitor {
         result = items.makeAssignItem(l);
     }
 
+    // 访问一元表达式
     public void visitUnary(JCUnary tree) {
+        // 表达式对象
         OperatorSymbol operator = (OperatorSymbol)tree.operator;
         if (tree.getTag() == JCTree.NOT) {
+            // 对非语句单独处理
             CondItem od = genCond(tree.arg, false);
             result = od.negate();
         } else {
+            // 例16-9 调用genExpr()方法处理JCArrayAccess(arr[a])树节点，得到IndexedItem(int)对象
             Item od = genExpr(tree.arg, operator.type.getParameterTypes().head);
             switch (tree.getTag()) {
-            case JCTree.POS:
+            case JCTree.POS: // +
                 result = od.load();
                 break;
-            case JCTree.NEG:
+            case JCTree.NEG: // -
                 result = od.load();
                 code.emitop0(operator.opcode);
                 break;
-            case JCTree.COMPL:
+            case JCTree.COMPL: // ~
                 result = od.load();
                 emitMinusOne(od.typecode);
                 code.emitop0(operator.opcode);
                 break;
-            case JCTree.PREINC: case JCTree.PREDEC:
+            case JCTree.PREINC: case JCTree.PREDEC: // ++_,--_
                 od.duplicate();
                 if (od instanceof LocalItem &&
                     (operator.opcode == iadd || operator.opcode == isub)) {
+                    // 调用od的incr()方法以生成iinc指令
                     ((LocalItem)od).incr(tree.getTag() == JCTree.PREINC ? 1 : -1);
                     result = od;
                 } else {
@@ -1875,7 +1924,8 @@ public class Gen extends JCTree.Visitor {
                     result = items.makeAssignItem(od);
                 }
                 break;
-            case JCTree.POSTINC: case JCTree.POSTDEC:
+            case JCTree.POSTINC: case JCTree.POSTDEC:// _++,_--
+                // 例16-9 调用IndexedItem(int)对象的duplicate()方法将生成dup2指令，
                 od.duplicate();
                 if (od instanceof LocalItem &&
                     (operator.opcode == iadd || operator.opcode == isub)) {
@@ -1883,8 +1933,11 @@ public class Gen extends JCTree.Visitor {
                     ((LocalItem)od).incr(tree.getTag() == JCTree.POSTINC ? 1 : -1);
                     result = res;
                 } else {
+                    // 例16-9 调用IndexedItem(int)对象的load()方法将生成iaload指令
                     Item res = od.load();
+                    // 例16-9 调用IndexedItem(int)对象的stash()方法将生成dup_x2指令；
                     od.stash(od.typecode);
+                    // 例16-9 调用code.emitop0()方法将生成iconst_1与iadd指令
                     code.emitop0(one(od.typecode));
                     code.emitop0(operator.opcode);
                     // Perform narrowing primitive conversion if byte,
@@ -1892,6 +1945,7 @@ public class Gen extends JCTree.Visitor {
                     if (od.typecode != INTcode &&
                         Code.truncate(od.typecode) == INTcode)
                       code.emitop0(int2byte + od.typecode - BYTEcode);
+                    // 例16-9 调用od.store()方法将生成iastore指令
                     od.store();
                     result = res;
                 }
@@ -1914,6 +1968,7 @@ public class Gen extends JCTree.Visitor {
         code.emitop0(pop);
     }
 
+    // 访问二元表达式
     public void visitBinary(JCBinary tree) {
         OperatorSymbol operator = (OperatorSymbol)tree.operator;
         if (operator.opcode == string_add) {
@@ -1952,8 +2007,14 @@ public class Gen extends JCTree.Visitor {
                 result = lcond;
             }
         } else {
+            // 例16-6 调用genExpr()方法处理JCIdent(a)树节点并返回StaticItem对象，
+            // 例16-7 当调用genExpr()方法处理JCIdent(a)树节点时则会调用visitIdent()方法处理，visitIdent()方法会生成一个aload_0指令并且返回一个MemberItem对象
             Item od = genExpr(tree.lhs, operator.type.getParameterTypes().head);
+            // 例16-6 调用这个对象的load()方法生成getstatic指令,则表示获取变量a的值并压入到操作数栈顶
+            // 例16-7 调用load()方法生成getfield指令，表示获取实例变量a的值并压入到操作数栈顶
             od.load();
+            // 例16-6 调用completeBinop()方法处理JCLiteral(1)树节点
+            // 例16-6 completeBinaop()方法对JCLiteral(1)的处理与实例16-6的处理逻辑类似，生成iconst_1与iadd指令并返回一个StackItem对象，代表栈中产生了一个int类型的数据
             result = completeBinop(tree.lhs, tree.rhs, operator);
         }
     }
@@ -2025,6 +2086,7 @@ public class Gen extends JCTree.Visitor {
          *  @param rhs       The tree representing the right operand.
          *  @param operator  The operator symbol.
          */
+        // 完成生成操作代码，左操作数已在堆栈上。
         Item completeBinop(JCTree lhs, JCTree rhs, OperatorSymbol operator) {
             MethodType optype = (MethodType)operator.type;
             int opcode = operator.opcode;
@@ -2036,19 +2098,15 @@ public class Gen extends JCTree.Visitor {
                        TreeInfo.isNull(rhs)) {
                 opcode = opcode + (if_acmp_null - if_acmpeq);
             } else {
-                // The expected type of the right operand is
-                // the second parameter type of the operator, except for
-                // shifts with long shiftcount, where we convert the opcode
-                // to a short shift and the expected type to int.
                 Type rtype = operator.erasure(types).getParameterTypes().tail.head;
                 if (opcode >= ishll && opcode <= lushrl) {
                     opcode = opcode + (ishl - ishll);
                     rtype = syms.intType;
                 }
-                // Generate code for right operand and load.
+                // 调用genExpr()方法处理JCLiteral(1)并返回ImmediateItem对象
+                // 调用这个对象的load()方法生成iconst_1指令，将常量值1压入操作数栈顶
+                // 例16-6
                 genExpr(rhs, rtype).load();
-                // If there are two consecutive opcode instructions,
-                // emit the first now.
                 if (opcode >= (1 << preShift)) {
                     code.emitop0(opcode >> preShift);
                     opcode = opcode & 0xFF;
@@ -2058,7 +2116,9 @@ public class Gen extends JCTree.Visitor {
                 opcode == if_acmp_null || opcode == if_acmp_nonnull) {
                 return items.makeCondItem(opcode);
             } else {
+                // 调用code.emitop0()方法生成iadd指令
                 code.emitop0(opcode);
+                // 最后创建一个StatckItem对象，类型为operator方法的返回类型
                 return items.makeStackItem(optype.restype);
             }
         }
@@ -2085,9 +2145,13 @@ public class Gen extends JCTree.Visitor {
         result = items.makeStackItem(syms.booleanType);
     }
 
+    // 例16-9 调用visitIndexed()方法处理JCArrayAccess(arr[a])树节点
     public void visitIndexed(JCArrayAccess tree) {
+        // 例16-9 调用genExpr()方法处理JCIdent(arr)树节点，得到LocalItem(type=int[]; reg=1)对象，调用这个对象的load()方法将生成aload_1指令并将int[]类型压入操作数栈顶；
         genExpr(tree.indexed, tree.indexed.type).load();
+        // 例16-9 调用genExpr()方法处理JCIdent(a)树节点，将得到LocalItem(type=int; reg=2)对象，调用这个对象的load()方法将生成aload_2指令并将int类型压入操作数栈顶
         genExpr(tree.index, syms.intType).load();
+        // 最后会创建一个IndexedItem对象并返回。
         result = items.makeIndexedItem(tree.type);
     }
 
@@ -2095,23 +2159,32 @@ public class Gen extends JCTree.Visitor {
         Symbol sym = tree.sym;
         if (tree.name == names._this || tree.name == names._super) {
             Item res = tree.name == names._this
+                    // 当关键字为this时，则调用items.makeThisItem()方法创建SelfItem对象
                 ? items.makeThisItem()
+                    // 当关键字为super时，则调用items.makeSuperItem()方法创建SelfItem对象
                 : items.makeSuperItem();
             if (sym.kind == MTH) {
                 // Generate code to address the constructor.
+                // 如果sym表示方法，则调用SelfItem对象的load()方法
+                // 这个方法会生成aload_0指令
                 res.load();
                 res = items.makeMemberItem(sym, true);
             }
+            // visitIdent()方法最后会返回MemberItem对象
             result = res;
         } else if (sym.kind == VAR && sym.owner.kind == MTH) {
+            // 最终会返回一个LocalItem对象，这就是AssignItem对象的lhs变量中保存的实体。
+            // 例16-9 由于arr与a都为变量，因而visitIdent()方法将会创建一个LocalItem对象并赋值给result，result将作为最终的结果返回给调用者
             result = items.makeLocalItem((VarSymbol)sym);
         } else if ((sym.flags() & STATIC) != 0) {
             if (!isAccessSuper(env.enclMethod))
                 sym = binaryQualifier(sym, env.enclClass.type);
             result = items.makeStaticItem(sym);
         } else {
+            // 创建一个SelfItem对象并调用load()方法，该方法会生成aload_0指令，表示将当前的实例压入栈内
             items.makeThisItem().load();
             sym = binaryQualifier(sym, env.enclClass.type);
+            // 创建一个MemberItem对象并赋值给result
             result = items.makeMemberItem(sym, (sym.flags() & PRIVATE) != 0);
         }
     }
@@ -2176,6 +2249,7 @@ public class Gen extends JCTree.Visitor {
         }
     }
 
+    // 访问字面量
     public void visitLiteral(JCLiteral tree) {
         if (tree.type.tag == TypeTags.BOT) {
             code.emitop0(aconst_null);
@@ -2187,6 +2261,8 @@ public class Gen extends JCTree.Visitor {
             }
         }
         else
+            // 返回一个ImmediateItem对象，然后会在visitAssign()方法中调用这个对象的load()方法将常量值加载到栈中
+            // 创建一个ImmediateItem对象并赋值给result。
             result = items.makeImmediateItem(tree.type, tree.value);
     }
 
@@ -2201,6 +2277,8 @@ public class Gen extends JCTree.Visitor {
  * main method
  *************************************************************************/
 
+    // 调用JavaCompiler类的compile()方法会间接调用到Gen类的genClass()方法，
+    // 每个类都会调用一次genClass()方法，因为每个类都可以定义自己的方法，需要为这些方法生成对应的字节码指令
     /** Generate code for a class definition.
      *  @param env   The attribution environment that belongs to the
      *               outermost class containing this class definition.
@@ -2221,14 +2299,19 @@ public class Gen extends JCTree.Visitor {
                 && !allowGenerics // no Miranda methods available with generics
                 )
                 implementInterfaceMethods(c);
+            // 调用normalizeDefs()方法对一些语法树结构进行调整，主要是对匿名块和成员变量的初始化表达式进行调整
+            // Javac会将这些具体的语法树结构重构到<init>方法与<cinit>方法中
+            // 例16-1/16-2
             cdef.defs = normalizeDefs(cdef.defs, c);
             c.pool = pool;
             pool.reset();
+            // 创建localEnv环境，Env对象localEnv的info变量的类型为GenContext
             Env<GenContext> localEnv =
                 new Env<GenContext>(cdef, new GenContext());
             localEnv.toplevel = env.toplevel;
             localEnv.enclClass = cdef;
             for (List<JCTree> l = cdef.defs; l.nonEmpty(); l = l.tail) {
+                // 调用genDef()方法来遍历类中定义的成员
                 genDef(l.head, localEnv);
             }
             if (pool.numEntries() > Pool.MAX_ENTRIES) {
@@ -2274,6 +2357,7 @@ public class Gen extends JCTree.Visitor {
     /** code generation contexts,
      *  to be used as type parameter for environments.
      */
+    // 这个类中定义了一些变量和方法，用来辅助进行字节码指令的生成
     static class GenContext {
 
         /** A chain for all unresolved jumps that exit the current environment.

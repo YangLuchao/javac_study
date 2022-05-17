@@ -435,6 +435,8 @@ public class Types {
         if (t == s)
             return true;
 
+        // 当s是UndetVar对象，所以tag值为TypeTags.UNDETVAR
+        // 大于firstPartialTag的值，调用isSuperType()方法进行处理
         if (s.tag >= firstPartialTag)
             return isSuperType(s, t);
 
@@ -583,14 +585,16 @@ public class Types {
             }
 
             @Override
+            // 判断t是否是s的子类
             public Boolean visitUndetVar(UndetVar t, Type s) {
-                //todo: test against origin needed? or replace with substitution?
                 if (t == s || t.qtype == s || s.tag == ERROR || s.tag == UNKNOWN)
+                    // t与s相等或者t.qtype与s相等，则直接返回true
                     return true;
 
                 if (t.inst != null)
+                    // t.inst不为空，表示推断出了具体的类型，调用types.isSubtypeNoCapture()方法判断t.inst与s的关系
                     return isSubtypeNoCapture(t.inst, s); // TODO: ", warn"?
-
+                // t.inst为空，则往t的hibounds中追加s的值，然后返回true，表示t是s的子类
                 t.hibounds = t.hibounds.prepend(s);
                 return true;
             }
@@ -649,18 +653,24 @@ public class Types {
     /**
      * Is t a supertype of s?
      */
+    // t是否是s的超类
     public boolean isSuperType(Type t, Type s) {
         switch (t.tag) {
         case ERROR:
             return true;
         case UNDETVAR: {
             UndetVar undet = (UndetVar)t;
+            // 当两个类型相等、需要推断的类型变量undet.qtype与s相等或者s为null时
             if (t == s ||
                 undet.qtype == s ||
                 s.tag == ERROR ||
-                s.tag == BOT) return true;
+                s.tag == BOT)
+                // isSuperType()方法返回true，表示t是s的父类
+                return true;
             if (undet.inst != null)
+                // 当推断出UndetVar对象中的类型变量qtype的具体类型时会保存到inst变量中
                 return isSubtype(s, undet.inst);
+            // 当还没有推断出具体类型时，会将s当作UndeVar对象的一个下界填充到lobounds列表中
             undet.lobounds = undet.lobounds.prepend(s);
             return true;
         }
@@ -1614,7 +1624,7 @@ public class Types {
      * @param sym a symbol
      */
     // 查找某个类型或某个类型的父类和实现接口
-    // 传入符号，查找父类型
+    // 传入符号或类型，查找父类型
     public Type asSuper(Type t, Symbol sym) {
         return asSuper.visit(t, sym);
     }
@@ -2703,16 +2713,19 @@ public class Types {
         return newTvars.toList();
     }
 
+    // TypeVar为泛型对象，将t替换为上界类型
+    // 例13-3
     public TypeVar substBound(TypeVar t, List<Type> from, List<Type> to) {
         Type bound1 = subst(t.bound, from, to);
         if (bound1 == t.bound)
+            // 上界相同，返回t
             return t;
         else {
-            // create new type variable without bounds
+            // 不同，创建新的泛型
             TypeVar tv = new TypeVar(t.tsym, null, syms.botType);
-            // the new bound should use the new type variable in place
-            // of the old
+            // 设置泛型的上界
             tv.bound = subst(bound1, List.<Type>of(t), List.<Type>of(tv));
+            // 返回
             return tv;
         }
     }
@@ -3038,22 +3051,30 @@ public class Types {
      * Intersect two closures
      */
     public List<Type> intersect(List<Type> cl1, List<Type> cl2) {
+        // 参数列表cl1与cl2中的元素已经按优先级从高到低进行了排序，所以可以通过比较优先级快速判断两个类型的tsym是否相同。
         if (cl1 == cl2)
             return cl1;
         if (cl1.isEmpty() || cl2.isEmpty())
             return List.nil();
+        // 调用TypeSymbol类中的precedes()方法比较两个类型的优先级
+        // 返回false时，tsym一定不是同一个，舍弃优先级大的那个，然后对两个列表继续递归调用intersect()方法进行计算。
         if (cl1.head.tsym.precedes(cl2.head.tsym, this))
             return intersect(cl1.tail, cl2);
         if (cl2.head.tsym.precedes(cl1.head.tsym, this))
             return intersect(cl1, cl2.tail);
         if (isSameType(cl1.head, cl2.head))
+            // 两个类型相等
             return intersect(cl1.tail, cl2.tail).prepend(cl1.head);
         if (cl1.head.tsym == cl2.head.tsym &&
             cl1.head.tag == CLASS && cl2.head.tag == CLASS) {
+            // cl1与cl2列表中的类型可能有参数化的类型，所以需要对参数化类型也支持取交集
             if (cl1.head.isParameterized() && cl2.head.isParameterized()) {
+                // 当从cl1与cl2列表中取出的类型都是参数化类型时，
+                // 调用merge()方法求两个类型的交集
                 Type merge = merge(cl1.head,cl2.head);
                 return intersect(cl1.tail, cl2.tail).prepend(merge);
             }
+            // 当两个类型中有一个是裸类型时，其擦写后的类型就是两个类型的交集
             if (cl1.head.isRaw() || cl2.head.isRaw())
                 return intersect(cl1.tail, cl2.tail).prepend(erasure(cl1.head));
         }
@@ -3081,23 +3102,36 @@ public class Types {
             }
         }
         Set<TypePair> mergeCache = new HashSet<TypePair>();
+        // 求两个类型的交集，
         private Type merge(Type c1, Type c2) {
             ClassType class1 = (ClassType) c1;
+            // c1的参数化类型
             List<Type> act1 = class1.getTypeArguments();
             ClassType class2 = (ClassType) c2;
+            // c2的参数化类型
             List<Type> act2 = class2.getTypeArguments();
             ListBuffer<Type> merged = new ListBuffer<Type>();
             List<Type> typarams = class1.tsym.type.getTypeArguments();
 
+            // c1、c都不为空
             while (act1.nonEmpty() && act2.nonEmpty() && typarams.nonEmpty()) {
                 if (containsType(act1.head, act2.head)) {
+                    // act1包含act2
                     merged.append(act1.head);
                 } else if (containsType(act2.head, act1.head)) {
+                    // act2包含act1
                     merged.append(act2.head);
                 } else {
+                    // 没有包含关系
+                    // 如：List<Integer>与List<Number>两个类型的最小上界时，调用merge()方法传递的List<Integer>与List<Number>类型并没有相互包含的关系
                     TypePair pair = new TypePair(c1, c2);
                     Type m;
+                    // 会创建一个参数化类型。这个类型的实际类型参数的类型是个通配符类型
                     if (mergeCache.add(pair)) {
+                        // 这个通配符类型要包含Integer与Number两个类型
+                        // 具体就是先求两个实际类型参数类型的上界，然后递归调用lub()方法计算两个上界的最小上界
+                        // 如Integer与Number的上界分别为Integer与Number，调用lub()方法求上界的最小上界时得到Number类型，
+                        // 所以最终实际类型参数的类型为通配符类型? extends Number
                         m = new WildcardType(lub(upperBound(act1.head),
                                                  upperBound(act2.head)),
                                              BoundKind.EXTENDS,
@@ -3121,15 +3155,22 @@ public class Types {
     /**
      * Return the minimum type of a closure, a compound type if no
      * unique minimum exists.
+     * 返回闭包的最小类型，如果不存在唯一最小值，则返回复合类型。
      */
+    // 返回最小上界
     private Type compoundMin(List<Type> cl) {
-        if (cl.isEmpty()) return syms.objectType;
+        if (cl.isEmpty())
+            // 当cl为空时，最小上界为Object
+            return syms.objectType;
+        // cl不为空时调用closureMin()方法求最小的候选集compound
         List<Type> compound = closureMin(cl);
         if (compound.isEmpty())
             return null;
         else if (compound.tail.isEmpty())
+            // 当compound中只有一个元素时，返回这个元素
             return compound.head;
         else
+            // 当compound中有多于一个的元素时，调用makeCompoundType()方法创建一个组合类型
             return makeCompoundType(compound);
     }
 
@@ -3140,6 +3181,7 @@ public class Types {
     // cl列表中的元素是按优先级从高到低排好序
     // 一般类型变量的优先级较高，子类的优先级次之，因此列表中类型变量会先出现。
     // 如果两个类型有父子关系，则子类一定比父类的位置靠前
+    // 返回cl的最小类型
     private List<Type> closureMin(List<Type> cl) {
         ListBuffer<Type> classes = lb();
         ListBuffer<Type> interfaces = lb();
@@ -3171,10 +3213,14 @@ public class Types {
      * Return the least upper bound (lub) of set of types.  If the lub
      * does not exist return the type of null (bottom).
      */
+    // 返回ts的最小上界
+    // ts列表中保存的类型可能是类和接口、数组或者类型变量，
+    // 所以在lub()方法中分情况求类型的最小上界，
     public Type lub(List<Type> ts) {
         final int ARRAY_BOUND = 1;
         final int CLASS_BOUND = 2;
         int boundkind = 0;
+        // 计算ts的组成情况，分为只有数组的情况、只有类和接口的情况或者既有数组也有类和接口的情况
         for (Type t : ts) {
             switch (t.tag) {
             case CLASS:
@@ -3198,80 +3244,103 @@ public class Types {
                     return syms.errType;
             }
         }
+
         switch (boundkind) {
         case 0:
             return syms.botType;
 
         case ARRAY_BOUND:
             // calculate lub(A[], B[])
+            // 求lub(A[], B[])
+            // Type.map()方法将ts列表中所有的数组类型替换为对应的组成元素的类型
             List<Type> elements = Type.map(ts, elemTypeFun);
             for (Type t : elements) {
                 if (t.isPrimitive()) {
-                    // if a primitive type is found, then return
-                    // arraySuperType unless all the types are the
-                    // same
+                    // 如果有一个组成元素的类型是基本类型
                     Type first = ts.head;
                     for (Type s : ts.tail) {
                         if (!isSameType(first, s)) {
-                             // lub(int[], B[]) is Cloneable & Serializable
+                            // 其他类型中至少有一个类型不和这个基本类型相同
+                            // lub(int[], B[]) is Cloneable & Serializable
+                            // lub(int[], B[]) 为Cloneable & Serializable
+                            // ts列表中所有数组的最小上界只能是组合类型Cloneable & Serializable
                             return arraySuperType();
                         }
                     }
                     // all the array types are the same, return one
                     // lub(int[], int[]) is int[]
+                    // 所有的数组类型相同，返回第一个数组类型即可
                     return first;
                 }
             }
             // lub(A[], B[]) is lub(A, B)[]
+            // 求lub(A[], B[])就是求lub(A, B)[]
+            // 如果组成元素的类型都是非基本类型时，调用lub()方法求组成元素类型的最小上界，
+            // 然后创建一个新的数组类型，这个类型就是求得的最小上界
             return new ArrayType(lub(elements), syms.arrayClass);
 
-        case CLASS_BOUND:
+        case CLASS_BOUND: // ts列表中只含有类和接口
             // calculate lub(A, B)
             while (ts.head.tag != CLASS && ts.head.tag != TYPEVAR)
                 ts = ts.tail;
             Assert.check(!ts.isEmpty());
-            //step 1 - compute erased candidate set (EC)
+            // 第1步：求所有擦除泛型的超类并做交集
+            // 首先计算ts列表中每个元素的父类集合
+            // 例如List<Integer>与List<Number>，调用erasedSupertypes()方法获取到List<Integer>的所有擦除泛型的超类为{List、Collection、Iterable、Object}，List<Number>与List<Integer>擦除泛型后类型相同，所以超类也相同。两个列表调用Types类中的intersect()方法做交集后得到的列表仍然为{List、Collection、Iterable、Object}。
             List<Type> cl = erasedSupertypes(ts.head);
             for (Type t : ts.tail) {
                 if (t.tag == CLASS || t.tag == TYPEVAR)
+                    // 调用Types类中的intersect()方法求两个类的交集，其实就是求共同的超类
                     cl = intersect(cl, erasedSupertypes(t));
             }
-            //step 2 - compute minimal erased candidate set (MEC)
+            // 第2步：求最小的候选集
             List<Type> mec = closureMin(cl);
-            //step 3 - for each element G in MEC, compute lci(Inv(G))
+            // 第3步：求lci(Inv(G))
             List<Type> candidates = List.nil();
             for (Type erasedSupertype : mec) {
+                // Inv(mec)表示对于列表mec中的每个元素，查找在ts列表中所有对应的参数化类型
+
                 List<Type> lci = List.of(asSuper(ts.head, erasedSupertype.tsym));
                 for (Type t : ts) {
+                    // 对lci列表做lci(the least containing invocation)运算
                     lci = intersect(lci, List.of(asSuper(t, erasedSupertype.tsym)));
                 }
                 candidates = candidates.appendList(lci);
             }
             //step 4 - let MEC be { G1, G2 ... Gn }, then we have that
             //lub = lci(Inv(G1)) & lci(Inv(G2)) & ... & lci(Inv(Gn))
+            // 第4步：求最小上界¬
             return compoundMin(candidates);
 
         default:
             // calculate lub(A, B[])
+            // 求lub(A, B[])
+            // 当ts列表中的元素既有数组也有类和接口时，将数组类型替换为组合类型Object & Serializable & Cloneable
             List<Type> classes = List.of(arraySuperType());
             for (Type t : ts) {
                 if (t.tag != ARRAY) // Filter out any arrays
                     classes = classes.prepend(t);
             }
             // lub(A, B[]) is lub(A, arraySuperType)
+            // 求lub(A, B[])就是求lub(A, arraySuperType)
+            // 调用lub()方法求这个组合类型与其他类型的最小上界
             return lub(classes);
         }
     }
     // where
         List<Type> erasedSupertypes(Type t) {
             ListBuffer<Type> buf = lb();
+            // closure()方法获取t的超类型，然后循环处理各个类型
             for (Type sup : closure(t)) {
                 if (sup.tag == TYPEVAR) {
+                    // 如果类型为类型变量，直接追加到buf列表中
                     buf.append(sup);
                 } else {
+                    // 否则调用erasure()方法将泛型擦除后的类型追加到buf列表中。
                     buf.append(erasure(sup));
                 }
             }
+            // 需要注意的是，调用closure()方法返回的列表中的元素是按照优先级从高到低排好序的，所以最终的buf列表中的元素也是按照优先级排好序，这样在lub()方法中调用intersect()方法时就会利用排序规则快速获取两个列表中类型的交集。
             return buf.toList();
         }
 
@@ -3489,6 +3558,7 @@ public class Types {
     /**
      * Return the boxed type if 't' is primitive, otherwise return 't' itself.
      */
+    // 对t进行装箱转换，types.boxedTypeOrType
     public Type boxedTypeOrType(Type t) {
         return t.isPrimitive() ?
             boxedClass(t).type :

@@ -68,7 +68,20 @@ import static com.sun.tools.javac.code.TypeTags.*;
 // 语义分析主要是由com.sun.tools.javac.comp.Attr类来完成的
 // 这个类完成的主要任务有名称消解（name resolution）、
 // 类型检查（type check）及常量折叠（constant folding）
+// 语法树标注就是在抽象语法树上标注好符号及类型，在第6章介绍过，任何树节点实现类都定义了type变量，这个变量用来保存类型，类型可能是当前树节点定义的类型，也可能是引用其他已经定义好的类型
+// 如果是引用其他已经定义好的类型，那么就需要在语法树标注阶段查找这个具体的类型并保存到对应树节点的type变量上。符号也是同样的道理，不过并不是任何语法树节点都能直接保存符号，也没有这个必要。为保存符号而定义的相关变量的类如图：可直接保存符号的树节点实现类.png所示
+// 在对表达式语法树进行标注之前还需要对符号和类型进行验证，任何表达式语法树都会根据所处的上下文环境给出对符号和类型的期望，如果实际查找到的符号和类型与期望的符号和类型不兼容，Javac将报错
 public class Attr extends JCTree.Visitor {
+
+    /*
+    抽象语法树的标注在Attr类中完成，
+    这个类继承了JCTree.Visitor抽象类并覆写了大部分的visitXxx()方法。
+    在标注类型过程中，类型的查找不像符号一样可以通过符号表查找，
+    但可以通过先确定唯一的符号引用后获取类型，
+    然后对符号及类型进行验证，验证通过后才会将符号及类型保存到相应的语法树节点上。
+    标注完成后的抽象语法树称为标注语法树，标注语法树将为后续编译阶段提供必要的符号及类型信息。
+     */
+
     protected static final Context.Key<Attr> attrKey =
         new Context.Key<Attr>();
 
@@ -200,17 +213,24 @@ public class Attr extends JCTree.Visitor {
      *  @param pkind    The expected kind (or: protokind) of the tree
      *  @param pt       The expected type (or: prototype) of the tree
      */
+    // pkind与pt就是根据当前表达式语法树所处的上下文环境得出的对符号及类型的期望
+    // 如果已经得出实际的符号及类型，就会调用check()方法来验证实际的符号和类型是否与期望的符号和类型兼容
+    // 参数owntype与ownkind分别表示实际的符号和类型，参数pt与pkind表示期望的符号和类型
     Type check(JCTree tree, Type owntype, int ownkind, int pkind, Type pt) {
+        // 当期望的类型不是与方法相关的类型时，将会对符号及类型进行兼容性检查
         if (owntype.tag != ERROR && pt.tag != METHOD && pt.tag != FORALL) {
-            if ((ownkind & ~pkind) == 0) {
+            // 首先检查实际的符号是否为期望符号的一种
+            if ((ownkind & ~pkind) == 0) { // 验证符号的兼容性
+                // 如果是，就会调用Check类的checkType()方法继续对类型的兼容性进行检查
                 owntype = chk.checkType(tree.pos(), owntype, pt, errKey);
-            } else {
+            } else { // 验证类型的兼容性
                 log.error(tree.pos(), "unexpected.type",
                           kindNames(pkind),
                           kindName(ownkind));
                 owntype = types.createErrorType(owntype);
             }
         }
+        // 最后将owntype保存到树节点的type变量上，算是完成了对语法树类型的标注
         tree.type = owntype;
         return owntype;
     }
@@ -391,22 +411,27 @@ public class Attr extends JCTree.Visitor {
 
     /** Visitor argument: the current environment.
      */
+    // 当前的环境
     Env<AttrContext> env;
 
     /** Visitor argument: the currently expected proto-kind.
      */
+    // 期望的类型，取值子Kinds类预定义的常量
     int pkind;
 
     /** Visitor argument: the currently expected proto-type.
      */
+    // 期望的类型，不同的类型通过tag值来区分，而tag值取自TypeTags类中预定义
     Type pt;
 
     /** Visitor argument: the error key to be generated when a type error occurs
      */
+    // 实际查找的符号或类型与期望的符号或类型不兼容是报错
     String errKey;
 
     /** Visitor result: the computed type.
      */
+    // 实际的类型
     Type result;
 
     /** Visitor method: attribute a tree, catching any completion failure
@@ -417,14 +442,19 @@ public class Attr extends JCTree.Visitor {
      *  @param pkind   The protokind visitor argument.
      *  @param pt      The prototype visitor argument.
      */
+    // 调用attribTree()方法遍历语法树
     Type attribTree(JCTree tree, Env<AttrContext> env, int pkind, Type pt) {
         return attribTree(tree, env, pkind, pt, "incompatible.types");
     }
 
     Type attribTree(JCTree tree, Env<AttrContext> env, int pkind, Type pt, String errKey) {
+        // 当前的环境
         Env<AttrContext> prevEnv = this.env;
+        // 期望的符号，值取自Kinds类中预定义的常量
         int prevPkind = this.pkind;
+        // 期望的类型，不同的类型通过tag值来区分，而tag值取自TypeTags类中预定义的常量
         Type prevPt = this.pt;
+        // 当实际查找的符号或类型与期望的符号或类型不兼容时报错
         String prevErrKey = this.errKey;
         try {
             this.env = env;
@@ -434,6 +464,7 @@ public class Attr extends JCTree.Visitor {
             tree.accept(this);
             if (tree == breakTree)
                 throw new BreakAttr(env);
+            // 实际的类型
             return result;
         } catch (CompletionFailure ex) {
             tree.type = syms.errType;
@@ -448,6 +479,7 @@ public class Attr extends JCTree.Visitor {
 
     /** Derived visitor method: attribute an expression tree.
      */
+    // 标注表达式
     public Type attribExpr(JCTree tree, Env<AttrContext> env, Type pt) {
         return attribTree(tree, env, VAL, pt.tag != ERROR ? pt : Type.noType);
     }
@@ -501,6 +533,7 @@ public class Attr extends JCTree.Visitor {
 
     /** Attribute the arguments in a method call, returning a list of types.
      */
+    // 标注方法参数节点，返回类型列表
     List<Type> attribArgs(List<JCExpression> trees, Env<AttrContext> env) {
         ListBuffer<Type> argtypes = new ListBuffer<Type>();
         for (List<JCExpression> l = trees; l.nonEmpty(); l = l.tail)
@@ -584,7 +617,6 @@ public class Attr extends JCTree.Visitor {
      *  @param env         The env for the const value
      *  @param initializer The initializer for the const value
      *  @param type        The expected type, or null
-     *  @see VarSymbol#setlazyConstValue
      */
     public Object attribLazyConstantValue(Env<AttrContext> env,
                                       JCTree.JCExpression initializer,
@@ -864,7 +896,7 @@ public class Attr extends JCTree.Visitor {
         Lint lint = env.info.lint.augment(v.attributes_field, v.flags());
         Lint prevLint = chk.setLint(lint);
 
-        // Check that the variable's declared type is well-formed.
+        // 调用Check类的validate()方法对参数化类型(泛型类型)进行检查
         chk.validate(tree.vartype, env);
         deferredLintHandler.flush(tree.pos());
 
@@ -1413,15 +1445,17 @@ public class Attr extends JCTree.Visitor {
      *  NOTE: The method part of an application will have in its type field
      *        the return type of the method, not the method's type itself!
      */
+     // visitApply()方法处理方法调用表达
     public void visitApply(JCMethodInvocation tree) {
-        // The local environment of a method application is
-        // a new environment nested in the current one.
+        // 当前的上下文环境
         Env<AttrContext> localEnv = env.dup(tree, env.info.dup());
 
         // The types of the actual method arguments.
+        // 实际方法参数的类型
         List<Type> argtypes;
 
         // The types of the actual method type arguments.
+        // 实际方法类型参数的类型(泛型方法)
         List<Type> typeargtypes = null;
 
         Name methName = TreeInfo.name(tree.meth);
@@ -1510,21 +1544,23 @@ public class Attr extends JCTree.Visitor {
             }
             result = tree.type = syms.voidType;
         } else {
-            // Otherwise, we are seeing a regular method call.
-            // Attribute the arguments, yielding list of argument types, ...
+            // 标记方法参数节点，并返回列表
             argtypes = attribArgs(tree.args, localEnv);
+            // 标记方法类型参数的类型(泛型参数)子节点，并返回节点
             typeargtypes = attribAnyTypes(tree.typeargs, localEnv);
 
-            // ... and attribute the method using as a prototype a methodtype
-            // whose formal argument types is exactly the list of actual
-            // arguments (this will also set the method symbol).
+            // 创建一个Type对象mpt作为查找方法时期望的类型
             Type mpt = newMethTemplate(argtypes, typeargtypes);
             localEnv.info.varArgs = false;
+            // 对于实例13-5来说，也就是标注JCIdent(name=md)
+            // 首先会调用Resolve类中的resolveMethod()方法查找方法的符号引用，resolveMethod()方法会间接调用rawInstantiate()方法
+            // 对于泛型方法而言，mtype可能是可能就是instantiateMethod()方法返回的mt
             Type mtype = attribExpr(tree.meth, localEnv, mpt);
             if (localEnv.info.varArgs)
                 Assert.check(mtype.isErroneous() || tree.varargsElement != null);
 
-            // Compute the result type.
+            // 计算返回类型
+            // 对于泛型方法类型推断而言，mtype为UninferredReturnType,调用mtype.getReturnType()方法得到UninferredReturnType对象
             Type restype = mtype.getReturnType();
             if (restype.tag == WILDCARD)
                 throw new AssertionError(mtype);
@@ -1553,8 +1589,8 @@ public class Attr extends JCTree.Visitor {
 
             chk.checkRefTypes(tree.typeargs, typeargtypes);
 
-            // Check that value of resulting type is admissible in the
-            // current context.  Also, capture the return type
+            // 检查结果类型的值在当前上下文中是否可接受。另外，捕获返回类型
+            // 返回类型还可能含有通配符类型，所以需要进行捕获转换，尽量保证在调用check()方法时让restype具体化。
             result = check(tree, capture(restype), VAL, pkind, pt);
         }
         chk.validate(tree.typeargs, localEnv);
@@ -1580,8 +1616,11 @@ public class Attr extends JCTree.Visitor {
 
         /** Obtain a method type with given argument types.
          */
+        // 获取具有给定参数类型的方法类型。
         Type newMethTemplate(List<Type> argtypes, List<Type> typeargtypes) {
+            // 根据实际参数类型生成MethodType对象mt，
             MethodType mt = new MethodType(argtypes, null, null, syms.methodClass);
+            // 当实际类型参数的类型列表typeargtypes不为空时，mt将被封装为ForAll对象
             return (typeargtypes == null) ? mt : (Type)new ForAll(typeargtypes, mt);
         }
 
@@ -1627,8 +1666,8 @@ public class Attr extends JCTree.Visitor {
                 clazz = clazzid1;
         }
 
-        // Attribute clazz expression and store
-        // symbol + type back into the attributed tree.
+        // 通过new关键字创建泛型对象时会调用构造方法，而构造方法也是一种特殊的方法，
+        // 所以钻石语法的类型推断类似于前面讲过的调用非构造方法时的类型推断
         Type clazztype = attribType(clazz, env);
         Pair<Scope,Scope> mapping = getSyntheticScopeMapping(clazztype);
         clazztype = chk.checkDiamond(tree, clazztype);
@@ -1656,7 +1695,9 @@ public class Attr extends JCTree.Visitor {
         List<Type> argtypes = attribArgs(tree.args, localEnv);
         List<Type> typeargtypes = attribTypes(tree.typeargs, localEnv);
 
+        // isDiamond返回TRUE表示钻石语法的构造函数
         if (TreeInfo.isDiamond(tree) && !clazztype.isErroneous()) {
+            // 类型推断
             clazztype = attribDiamond(localEnv, tree, clazztype, mapping, argtypes, typeargtypes);
             clazz.type = clazztype;
         } else if (allowDiamondFinder &&
@@ -1827,6 +1868,8 @@ public class Attr extends JCTree.Visitor {
         chk.validate(tree.typeargs, localEnv);
     }
 
+    // 这个方法会查找引用的构造方法的符号
+    // 标注钻石语法
     Type attribDiamond(Env<AttrContext> env,
                         JCNewClass tree,
                         Type clazztype,
@@ -1849,9 +1892,11 @@ public class Attr extends JCTree.Visitor {
         //if the type of the instance creation expression is a class type
         //apply method resolution inference (JLS 15.12.2.7). The return type
         //of the resolved constructor will be a partially instantiated type
+        // 在mapping.snd作用域中查找, 这样找到的构造方法的返回值类型就是类定义时的类型
         ((ClassSymbol) clazztype.tsym).members_field = mapping.snd;
         Symbol constructor;
         try {
+            // 找到钻石语法的构造函数的引用
             constructor = rs.resolveDiamond(tree.pos(),
                     localEnv,
                     clazztype.tsym.type,
@@ -1861,6 +1906,7 @@ public class Attr extends JCTree.Visitor {
             ((ClassSymbol) clazztype.tsym).members_field = mapping.fst;
         }
         if (constructor.kind == MTH) {
+            // 找到构造方法的符号引用
             ClassType ct = new ClassType(clazztype.getEnclosingType(),
                     clazztype.tsym.type.getTypeArguments(),
                     clazztype.tsym);
@@ -1875,11 +1921,12 @@ public class Attr extends JCTree.Visitor {
             clazztype = syms.errType;
         }
 
+
         if (clazztype.tag == FORALL && !pt.isErroneous()) {
-            //if the resolved constructor's return type has some uninferred
-            //type-variables, infer them using the expected type and declared
-            //bounds (JLS 15.12.2.8).
+            // clazztype为UninferredMethodType类型，则clazztype的类型就是UninferredReturnType，
+            // 表示还有未推断出具体类型的类型变量
             try {
+                // // 如果构造方法返回类型中含有待推断的类型变量时，继续进行推断
                 clazztype = infer.instantiateExpr((ForAll) clazztype,
                         pt.tag == NONE ? syms.objectType : pt,
                         Warner.noWarnings);
@@ -1903,12 +1950,19 @@ public class Attr extends JCTree.Visitor {
      *  <X,Y>Foo<X,Y>(X x, Y y). This is crucial in order to enable diamond
      *  inference. The inferred return type of the synthetic constructor IS
      *  the inferred type for the diamond operator.
+     *  创建一个包含假泛型构造函数的合成作用域。
+     *  假设原始作用域包含一个类型的构造函数：Foo(X x, Y y)，其中 X,Y 是在 Foo 中声明的类类型变量，合成作用域添加了一个类型的通用构造函数：<X,Y >Foo<X,Y>(X x, Y y)。这对于进行钻石推断至关重要。
+     *  合成构造函数的推断返回类型是菱形运算符的推断类型。
      */
+    // getSyntheticScopeMapping()方法主要的逻辑就是为类中每个构造方法合成一个新的构造方法，
+    // 这个构造方法的返回值就是类定义时的类型，但是每个合成的构造方法会存储到一个新的Scope对象中，
+    // 避免与原来的构造方法产生冲突，新合成的构造方法只用于类型推断。
     private Pair<Scope, Scope> getSyntheticScopeMapping(Type ctype) {
         if (ctype.tag != CLASS) {
             return erroneousMapping;
         }
-
+        // 对于每个构造函数合成一个对应的构造函数，合成的构造函数的返回类型为定义构造函数的类型
+        // 将新合成的构造函数填充到mapping.snd中
         Pair<Scope, Scope> mapping =
                 new Pair<Scope, Scope>(ctype.tsym.members(), new Scope(ctype.tsym));
 
@@ -1994,11 +2048,15 @@ public class Attr extends JCTree.Visitor {
         result = check(tree, capturedType, VAL, pkind, pt);
     }
 
+    // JCAssignOp树节点的标注(复合赋值运算符)
     public void visitAssignop(JCAssignOp tree) {
-        // Attribute arguments.
+        // 首先对JCAssignOp树节点tree的左子树与右子树进行标注
+        // 在标注左子树时调用的是attribTree()方法，符号期望为VAR，因为左子树引用的符号必须是变量
         Type owntype = attribTree(tree.lhs, env, VAR, Type.noType);
+        // 调用attribExpr标注右树节点
         Type operand = attribExpr(tree.rhs, env);
-        // Find operator.
+        // 调用Resolve类的resolveBinaryOperator()方法查找具体的符号引用了
+        // 查找到的OperatorSymbol对象将被保存到tree.operator
         Symbol operator = tree.operator = rs.resolveBinaryOperator(
             tree.pos(), tree.getTag() - JCTree.ASGOffset, env,
             owntype, operand);
@@ -2016,22 +2074,30 @@ public class Attr extends JCTree.Visitor {
                               operator.type.getReturnType(),
                               owntype);
         }
+        // 最后调用check()方法标注类型
         result = check(tree, owntype, VAL, pkind, pt);
     }
 
+    // 完成对JCUnary(一元运算符)树节点标注
     public void visitUnary(JCUnary tree) {
-        // Attribute arguments.
+        // 查找一元运算符的符号
         Type argtype = (JCTree.PREINC <= tree.getTag() && tree.getTag() <= JCTree.POSTDEC)
             ? attribTree(tree.arg, env, VAR, Type.noType)
             : chk.checkNonVoid(tree.arg.pos(), attribExpr(tree.arg, env));
 
-        // Find operator.
+        // 并保存到JCUnary对象的operator变量中
         Symbol operator = tree.operator =
+                // 通过rs查找具体被引用的符号
+                // 需要根据实际的参数类型argtype和符号名称进行查找
+                // 符号名称可通过调用tree.getTag()方法间接得到
             rs.resolveUnaryOperator(tree.pos(), tree.getTag(), env, argtype);
-
+        // 例12-1
+        // 首先将owntype初始化为ErrorType对象
         Type owntype = types.createErrorType(tree.type);
         if (operator.kind == MTH &&
+                // 当operator.kind值为MTH时，也就是查找到了合适的符号，更新owntype值
                 !argtype.isErroneous()) {
+            // 当tree为一元自增自减运算符时，获取tree.arg.type保存的类型，否则为方法的返回类型
             owntype = (JCTree.PREINC <= tree.getTag() && tree.getTag() <= JCTree.POSTDEC)
                 ? tree.arg.type
                 : operator.type.getReturnType();
@@ -2057,17 +2123,21 @@ public class Attr extends JCTree.Visitor {
         result = check(tree, owntype, VAL, pkind, pt);
     }
 
+    // JCBinary树节点的标注(二元运算符标注)
     public void visitBinary(JCBinary tree) {
-        // Attribute arguments.
+        // 首先对JCBinary树节点tree的左子树与右子树调用attribExpr()方法进行标注，
+        // 得到左子树与右子树的类型后调用Resolve类中的resolveBinaryOperator()方法查找具体引用的符号
         Type left = chk.checkNonVoid(tree.lhs.pos(), attribExpr(tree.lhs, env));
         Type right = chk.checkNonVoid(tree.lhs.pos(), attribExpr(tree.rhs, env));
 
-        // Find operator.
+        // 查找二元运算符的符号
+        // 将查找到的OperatorSymbol对象保存到tree.operator
         Symbol operator = tree.operator =
             rs.resolveBinaryOperator(tree.pos(), tree.getTag(), env, left, right);
 
         Type owntype = types.createErrorType(tree.type);
         if (operator.kind == MTH &&
+                // 当查找到的operator.kind值为MTH时更新owntype
                 !left.isErroneous() &&
                 !right.isErroneous()) {
             owntype = operator.type.getReturnType();
@@ -2107,6 +2177,8 @@ public class Attr extends JCTree.Visitor {
 
             chk.checkDivZero(tree.rhs.pos(), operator, right);
         }
+        // 用check()方法对符号和类型的兼容性进行检查，
+        // 如果兼容将owntype赋值给tree.type，这样JCBinary树节点的类型标注也完成了
         result = check(tree, owntype, VAL, pkind, pt);
     }
 
@@ -2145,31 +2217,30 @@ public class Attr extends JCTree.Visitor {
         result = check(tree, owntype, VAR, pkind, pt);
     }
 
+    // JCIdent树节点的标注(JCIdent树节点可能引用的是类型、方法或变量相关的符号)
+    // 例12-2
     public void visitIdent(JCIdent tree) {
         Symbol sym;
         boolean varArgs = false;
 
-        // Find symbol
+        // 查找方法
         if (pt.tag == METHOD || pt.tag == FORALL) {
-            // If we are looking for a method, the prototype `pt' will be a
-            // method type with the type of the call's arguments as parameters.
             env.info.varArgs = false;
+            // 期望是方法
             sym = rs.resolveMethod(tree.pos(), env, tree.name, pt.getParameterTypes(), pt.getTypeArguments());
             varArgs = env.info.varArgs;
         } else if (tree.sym != null && tree.sym.kind != VAR) {
+            // 处理导入声明
+            // 例：import java.util.ArrayList;
+            // 以上代码表示包名java的JCIdent树节点中的sym变量在符号输入阶段已经被赋值为PackageSymbol对象，所以直接取tree.sym值即可。
             sym = tree.sym;
         } else {
+            // 查找类型或变量
+            // 期望是变量
             sym = rs.resolveIdent(tree.pos(), env, tree.name, pkind);
         }
         tree.sym = sym;
 
-        // (1) Also find the environment current for the class where
-        //     sym is defined (`symEnv').
-        // Only for pre-tiger versions (1.4 and earlier):
-        // (2) Also determine whether we access symbol out of an anonymous
-        //     class in a this or super call.  This is illegal for instance
-        //     members since such classes don't carry a this$n link.
-        //     (`noOuterThisPath').
         Env<AttrContext> symEnv = env;
         boolean noOuterThisPath = false;
         if (env.enclClass.sym.owner.kind != PCK && // we are in an inner class
@@ -2227,23 +2298,42 @@ public class Attr extends JCTree.Visitor {
             while (env1.outer != null && !rs.isAccessible(env, env1.enclClass.sym.type, sym))
                 env1 = env1.outer;
         }
+        // 标注类型
+        // 标注了符号就需要标注类型了，调用checkId()方法会计算类型，然后在checkId()方法中调用check()方法进行类型标注
         result = checkId(tree, env1.enclClass.sym.type, sym, env, pkind, pt, varArgs);
     }
 
+    // JCFieldAccess树节点的标注(JCFieldAccess树节点可能引用的是类型、方法或变量相关的符号)
+    // 例12-7
     public void visitSelect(JCFieldAccess tree) {
-        // Determine the expected kind of the qualifier expression.
+        // 首先计算skind值，这是处理tree.selected时的符号期望
         int skind = 0;
+        // 如果当前JCFieldAccess树节点的名称为this、super或者class时，
         if (tree.name == names._this || tree.name == names._super ||
             tree.name == names._class)
         {
+            // 对tree.selected的符号期望是TYP
+            // 因为这几个名称之前的限定符只能是TYP
+            // 例12-8
             skind = TYP;
         } else {
-            if ((pkind & PCK) != 0) skind = skind | PCK;
-            if ((pkind & TYP) != 0) skind = skind | TYP | PCK;
-            if ((pkind & (VAL | MTH)) != 0) skind = skind | VAL | TYP;
+            if ((pkind & PCK) != 0)
+                // 如果对tree的符号期望是PCK，
+                // 那么对tree.selected的符号期望只能是PCK，因为包名之前的限定符只能为包名；
+                skind = skind | PCK;
+            if ((pkind & TYP) != 0)
+                // 如果对tree的符号期望是TYP，那么对tree.selected的符号期望可以为TYP或PCK，
+                // 也就是类型之前的限定符可以是类型或者包名
+                skind = skind | TYP | PCK;
+            if ((pkind & (VAL | MTH)) != 0)
+                // 如果对tree的符号期望是VAL或MTH，那么对tree.selected的符号期望可以是VAL或者TYP，
+                // 因为方法或变量前的限定符可以为变量或类型
+                skind = skind | VAL | TYP;
         }
 
-        // Attribute the qualifier expression, and determine its symbol (if any).
+        // 标注tree.selected树节点并返回引用的符号
+        // 标注tree.selected子节点，同时传递符号期望skind与类型期望Infer.anyPoly
+        // 例12-9
         Type site = attribTree(tree.selected, env, skind, Infer.anyPoly);
         if ((pkind & (PCK | TYP)) == 0)
             site = capture(site); // Capture field access
@@ -2260,9 +2350,9 @@ public class Attr extends JCTree.Visitor {
             }
         }
 
-        // If qualifier symbol is a type or `super', assert `selectSuper'
-        // for the selection. This is relevant for determining whether
-        // protected symbols are accessible.
+        // 根据tree.selected引用的符号和类型确定tree引用的符号和类型
+        // 根据JCFieldAccess获取符号
+        // 对于实例12-9来说，当调用visitSelect()方法标注JCFieldAccess(name=Music)时，sitesym为PackageSymbol(name=compile),site为PackageType(tsym.name=compile)
         Symbol sitesym = TreeInfo.symbol(tree.selected);
         boolean selectSuperPrev = env.info.selectSuper;
         env.info.selectSuper =
@@ -2280,9 +2370,11 @@ public class Attr extends JCTree.Visitor {
 
         // Determine the symbol represented by the selection.
         env.info.varArgs = false;
+        // 得到sitesym与site后就可以调用selectSym()方法确定当前tree引用的符号
         Symbol sym = selectSym(tree, sitesym, site, env, pt, pkind);
         if (sym.exists() && !isType(sym) && (pkind & (PCK | TYP)) != 0) {
             site = capture(site);
+            // 确定当前tree引用的符号
             sym = selectSym(tree, sitesym, site, env, pt, pkind);
         }
         boolean varArgs = env.info.varArgs;
@@ -2379,6 +2471,7 @@ public class Attr extends JCTree.Visitor {
                                      int pkind) {
             return selectSym(tree, site.tsym, site, env, pt, pkind);
         }
+        // selectSym()方法根据限定符类型site的不同计算当前JCFieldAccess树节点引用的符号
         private Symbol selectSym(JCFieldAccess tree,
                                  Symbol location,
                                  Type site,
@@ -2388,20 +2481,28 @@ public class Attr extends JCTree.Visitor {
             DiagnosticPosition pos = tree.pos();
             Name name = tree.name;
             switch (site.tag) {
-            case PACKAGE:
+            case PACKAGE: // 限定符号为包类型
+                // 当site.tag值为PACKAGE时，表示限定符为包类型，
+                // 调用Resolve类的findIdentInPackage()方法从指定的包符号site.tsym内查找名称为name的类或包
                 return rs.access(
                     rs.findIdentInPackage(env, site.tsym, name, pkind),
                     pos, location, site, name, true);
-            case ARRAY:
-            case CLASS:
+            case ARRAY: // 限定符号为数组
+            case CLASS: // 限定符号为类或接口
                 if (pt.tag == METHOD || pt.tag == FORALL) {
+                    // 当类型期望为方法类型时，调用Resolve类中的resolveQualifiedMethod()方法进行查找
                     return rs.resolveQualifiedMethod(
                         pos, env, location, site, name, pt.getParameterTypes(), pt.getTypeArguments());
                 } else if (name == names._this || name == names._super) {
+                    // name值为this或super时，调用resolveSelf()方法获取引用的符号
                     return rs.resolveSelf(pos, env, site.tsym, name);
                 } else if (name == names._class) {
-                    // In this case, we have already made sure in
-                    // visitSelect that qualifier expression is a type.
+                    // 当name为class时，可以确定限定符为类型
+                    // 当name为class时要进行特殊处理，如分析Integer.class时，Integer是类，
+                    // 最终Integer.class返回的是一个VarSymbol对象，名称为class，
+                    // 所以可以将class看作是Integer类中定义的一个变量，
+                    // 不过这个变量的类型为java.lang.Class<Integer>，或者如int[].class，
+                    // 返回VarSymbol对象，其类型为java.lang.Class<int[]>
                     Type t = syms.classType;
                     List<Type> typeargs = allowGenerics
                         ? List.of(types.erasure(site))
@@ -2416,16 +2517,12 @@ public class Attr extends JCTree.Visitor {
                         sym = rs.access(sym, pos, location, site, name, true);
                     return sym;
                 }
-            case WILDCARD:
+            case WILDCARD: // 类型不能为通配符
                 throw new AssertionError(tree);
-            case TYPEVAR:
-                // Normally, site.getUpperBound() shouldn't be null.
-                // It should only happen during memberEnter/attribBase
-                // when determining the super type which *must* beac
-                // done before attributing the type variables.  In
-                // other words, we are seeing this illegal program:
-                // class B<T> extends A<T.foo> {}
+            case TYPEVAR: // 限定符为类型变量
+                // 首先获取类型变量的上界，这个上界类型中可能含有通配符类型
                 Symbol sym = (site.getUpperBound() != null)
+                        // 调用capture()方法进行捕获转换，然后递归调用selectSym()方法得到sym
                     ? selectSym(tree, location, capture(site.getUpperBound()), env, pt, pkind)
                     : null;
                 if (sym == null) {
@@ -2442,11 +2539,9 @@ public class Attr extends JCTree.Visitor {
                 // preserve identifier names through errors
                 return types.createErrorType(name, site.tsym, site).tsym;
             default:
-                // The qualifier expression is of a primitive type -- only
-                // .class is allowed for these.
+                // 当限定符为基本类型时，只允许name为class
                 if (name == names._class) {
-                    // In this case, we have already made sure in Select that
-                    // qualifier expression is a type.
+                    // 当name为class时，可以确定限定符为类型
                     Type t = syms.classType;
                     Type arg = types.boxedClass(site).type;
                     t = new ClassType(t.getEnclosingType(), List.of(arg), t.tsym);
@@ -2474,7 +2569,17 @@ public class Attr extends JCTree.Visitor {
          *    else if symbol is a method, return its result type
          *    otherwise return its type.
          *  Otherwise return errType.
-         *
+         *  确定标识符的类型或选择表达式并检查
+         *      (1) 引用的符号不被弃用
+         *      (2) 符号的类型是安全的 (@see checkSafe)
+         *      (3) 如果符号是变量，检查其类型和种类是否兼容原型和原型。
+         *      (4) 如果符号是一个原始类型的实例字段，它被分配到，如果它的类型在擦除下发生变化，则发出未经检查的警告。
+         *      (5) 如果 symbol 是原始类型的实例方法，如果它的参数类型在擦除时发生变化，则发出未经检查的警告。
+         *  如果检查成功：
+         *      如果 symbol 是常量，则返回其常量类型，
+         *      否则如果 symbol 是方法，则返回其结果类型，
+         *      否则返回其类型。
+         *      否则返回 errType。
          *  @param tree       The syntax tree representing the identifier
          *  @param site       If this is a select, the type of the selected
          *                    expression, otherwise the type of the current class.
@@ -2494,8 +2599,8 @@ public class Attr extends JCTree.Visitor {
             Type owntype; // The computed type of this identifier occurrence.
             switch (sym.kind) {
             case TYP:
-                // For types, the computed type equals the symbol's type,
-                // except for two situations:
+                // 表示sym是一个类型，checkId()方法通过sym获取实现类型
+                // 直接获取sym.type值即可
                 owntype = sym.type;
                 if (owntype.tag == CLASS) {
                     Type ownOuter = owntype.getEnclosingType();
@@ -2530,6 +2635,7 @@ public class Attr extends JCTree.Visitor {
                 }
                 break;
             case VAR:
+                // 当sym.kind值为VAR时，表示sym是一个变量，checkId()方法通过sym获取实现类型
                 VarSymbol v = (VarSymbol)sym;
                 // Test (4): if symbol is an instance field of a raw type,
                 // which is being assigned to, issue an unchecked warning if
@@ -2550,8 +2656,11 @@ public class Attr extends JCTree.Visitor {
                 }
                 // The computed type of a variable is the type of the
                 // variable symbol, taken as a member of the site type.
+                // 当sym是成员变量并且不是this或者super这两个隐式的变量时，
                 owntype = (sym.owner.kind == TYP &&
                            sym.name != names._this && sym.name != names._super)
+                        // 调用types.memberType()方法计算sym在site下的类型，否则直接取sym.type的值
+                        // 例12-4、12-5
                     ? types.memberType(site, sym)
                     : sym.type;
 
@@ -2575,7 +2684,9 @@ public class Attr extends JCTree.Visitor {
                 }
                 break;
             case MTH: {
+                // 当sym.kind的值为MTH时，表示sym是一个方法，checkId()方法通过sym获取实际的类型
                 JCMethodInvocation app = (JCMethodInvocation)env.tree;
+                // 调用checkMethod()方法计算owntype变量的值
                 owntype = checkMethod(site, sym, env, app.args,
                                       pt.getParameterTypes(), pt.getTypeArguments(),
                                       env.info.varArgs);
@@ -2715,6 +2826,8 @@ public class Attr extends JCTree.Visitor {
     /**
      * Check that method arguments conform to its instantation.
      **/
+    // 检查方法参数是否符合其实例化
+    // 获取类型
     public Type checkMethod(Type site,
                             Symbol sym,
                             Env<AttrContext> env,
@@ -2742,6 +2855,9 @@ public class Attr extends JCTree.Visitor {
         // Resolve.instantiate from the symbol's type as well as
         // any type arguments and value arguments.
         noteWarner.clear();
+        // 调用Resolve类中的instantiate()方法得到具体的类型
+        // 这个方法类型可能为UninferredMethodType类型。
+        // 如果为UninferredMethodType类型，则clazztype的类型就是UninferredReturnType，表示还有未推断出具体类型的类型变量
         Type owntype = rs.instantiate(env,
                                       site,
                                       sym,

@@ -44,6 +44,11 @@ import static com.sun.tools.javac.jvm.ClassWriter.StackMapTableFrame;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// Javac在生成字节码指令时尽可能地模拟Java虚拟机运行时的过程，
+// 用来进行类型验证及更好地生成字节码指令，也能为Java虚拟机运行时提供一些必要的参数
+// Code类提供了许多生成Java虚拟机指令的方法，而且在指令生成过程中还会对本地变量表、操作数栈及常量池进行相应的操作
+// 每当需要为一个方法生成字节码指令时，通常都会创建一个Code对象，每个对象都对应着唯一的本地变量表和操作数栈
+// 最终会将生成的字节码指令存储到Class文件中对应方法的code属性上
 public class Code {
 
     public final boolean debugCode;
@@ -73,18 +78,23 @@ public class Code {
 
     /** The maximum stack size.
      */
+    // 最大栈空间
     public int max_stack = 0;
 
     /** The maximum number of local variable slots.
      */
+    // max_locals保存了本地变量表的最大容量
+    // 这个值将写入Class文件中为Java虚拟机初始化本地变量表提供参考
     public int max_locals = 0;
 
     /** The code buffer.
      */
+    // code存储生成的字节码指令，具体就是指令的操作码和操作数
     public byte[] code = new byte[64];
 
     /** the current code pointer.
      */
+    // cp指向code数组中下一个可用的位置
     public int cp = 0;
 
     /** Check the code against VM spec limits; if
@@ -128,6 +138,9 @@ public class Code {
 
     /** Code generation enabled?
      */
+    // alive在数据流分析时表示语句的可达性，这里的alive与可达性类似，
+    // 如果一个语句不可达，则不会生成对应的字节码指令；
+    // 如果可达，向code数组中压入指令编码后将cp值加1。
     private boolean alive = true;
 
     /** The current machine state (registers and stack).
@@ -141,6 +154,8 @@ public class Code {
 
     /** The next available register.
      */
+    // nextreg表示lvar数组中下一个可使用的存储位置
+    // 初始值为0，表示本地变量表存储的索引位置是从0开始的
     public int nextreg = 0;
 
     /** A chain for jumps to be resolved before the next opcode is emitted.
@@ -223,6 +238,7 @@ public class Code {
     /** Given a type, return its type code (used implicitly in the
      *  JVM architecture).
      */
+    // 将Javac中的类型映射为Java虚拟机支持的几种类型
     public static int typecode(Type type) {
         switch (type.tag) {
         case BYTE: return BYTEcode;
@@ -257,10 +273,18 @@ public class Code {
 
     /** The width in bytes of objects of the type.
      */
+    // width()方法获取type所占的本地变量表的槽位数
+    // 这些数值代表了存储对应类型值所占用的本地变量表的槽（Slot）的数量
+    // 在Javac中，每个槽对应着数组的一个存储位置
+    // 在查找时，对于占用一个槽的类型可直接通过表示本地变量表的数组下标来查找，而对于占用两个槽的类型，如占用n与n+1两个槽位，则最终存储的索引值为n
+    // Javac会将表示本地变量表的数组的n+1下标处的值设置为null，真正在Java虚拟机中会使用两个槽位存储实际的值。
     public static int width(int typecode) {
         switch (typecode) {
+        // long类型与double类型返回2
         case LONGcode: case DOUBLEcode: return 2;
+        // void类型返回0
         case VOIDcode: return 0;
+        // 其他返回1
         default: return 1;
         }
     }
@@ -310,10 +334,15 @@ public class Code {
         return cp;
     }
 
+    // emitX系列方法
+    // emitX()系列方法的名称中最后一个字符X代表数字1、2或4，这些数字表示可向code数组中存储1、2或4个字节的数据
+    // emitXxx()系列的方法都直接或间接调用了上面的emit1()方法，它可以压入一个指令编码，
+    // 如emitop()方法压入指令编码，或者调用N次压入一个指令编码的占用N个字节的操作数
     /** Emit a byte of code.
      */
     private  void emit1(int od) {
-        if (!alive) return;
+        if (!alive)
+            return;
         if (cp == code.length) {
             byte[] newcode = new byte[cp * 2];
             System.arraycopy(code, 0, newcode, 0, cp);
@@ -324,6 +353,7 @@ public class Code {
 
     /** Emit two bytes of code.
      */
+    // emit2()与emit4()方法分别表示压入由2个字节和4个字节表示的操作数
     private void emit2(int od) {
         if (!alive) return;
         if (cp + 2 > code.length) {
@@ -337,6 +367,7 @@ public class Code {
 
     /** Emit four bytes of code.
      */
+    // emit2()与emit4()方法分别表示压入由2个字节和4个字节表示的操作数
     public void emit4(int od) {
         if (!alive) return;
         if (cp + 4 > code.length) {
@@ -351,11 +382,14 @@ public class Code {
             code[cp++] = (byte)od;
         }
     }
+    // emitX系列方法
 
     /** Emit an opcode.
      */
+    // 调用emitop()方法将对应指令的编码保存到code字节数组中，然后操作栈中的内容
     private void emitop(int op) {
-        if (pendingJumps != null) resolvePending();
+        if (pendingJumps != null)
+            resolvePending();
         if (alive) {
             if (pendingStatPos != Position.NOPOS)
                 markStatBegin();
@@ -375,8 +409,11 @@ public class Code {
         Assert.check(alive || state.stacksize == 0);
     }
 
+    // emitXxx()系列方法
     /** Emit a multinewarray instruction.
      */
+    // 生成multinewarray:指令，表示创建指定类型和指定维度的多维数组（执行该指
+    // 令时，操作数栈中必须包含各维度的长度值)，并将其引用值压入栈顶
     public void emitMultianewarray(int ndims, int type, Type arrayType) {
         emitop(multianewarray);
         if (!alive) return;
@@ -388,16 +425,23 @@ public class Code {
 
     /** Emit newarray.
      */
+    // 生成newarray指令，表示创建一个引用型（如类、接口、数组）的数组，并将其引用值压入栈顶
     public void emitNewarray(int elemcode, Type arrayType) {
+        // 在生成newarray指令时，伴随有操作数栈的弹出与压入操作
         emitop(newarray);
-        if (!alive) return;
+        if (!alive)
+            return;
+        // 调用emit1()方法生成newarray指令的操作数，该操作数代表要创建数组的元素类型
         emit1(elemcode);
-        state.pop(1); // count
+        // 然后从栈中弹出要创建数组的大小
+        state.pop(1);
+        // 最后将创建好的数组的类型压入栈内
         state.push(arrayType);
     }
 
     /** Emit anewarray.
      */
+    // 生成anewarray:指令，表示创建一个引用类型（如类、接口、数组）的数组，并将其引用值压入栈顶
     public void emitAnewarray(int od, Type arrayType) {
         emitop(anewarray);
         if (!alive) return;
@@ -408,6 +452,7 @@ public class Code {
 
     /** Emit an invokeinterface instruction.
      */
+    // 生成invokeinterface指令，表示调用接口方法
     public void emitInvokeinterface(int meth, Type mtype) {
         int argsize = width(mtype.getParameterTypes());
         emitop(invokeinterface);
@@ -421,32 +466,47 @@ public class Code {
 
     /** Emit an invokespecial instruction.
      */
+    // 生成invokespecial指令，表示调用超类构造方法，实例初始化方法或者私有方法
     public void emitInvokespecial(int meth, Type mtype) {
+        // 在生成invokespecial指令时伴随有操作数栈和常量池的操作
         int argsize = width(mtype.getParameterTypes());
+        // 调用emitop()方法生成invokespecial指令
         emitop(invokespecial);
-        if (!alive) return;
+        if (!alive)
+            return;
+        // 调用emit2()方法生成一个常量池索引，该索引指向的常量池项是一个方法的符号引用
         emit2(meth);
         Symbol sym = (Symbol)pool.pool[meth];
+        // 调用state.pop()方法从栈中连续弹出方法的所有形式参数对应的类型；
         state.pop(argsize);
         if (sym.isConstructor())
             state.markInitialized((UninitializedType)state.peek());
+        // 最后调用state.pop()方法弹出定义当前方法的类
         state.pop(1);
+        // 再调用push()方法将方法的返回类型压入栈内
         state.push(mtype.getReturnType());
     }
 
     /** Emit an invokestatic instruction.
      */
+    // 生成invokestatic指令，表示调用静态方法
     public void emitInvokestatic(int meth, Type mtype) {
         int argsize = width(mtype.getParameterTypes());
         emitop(invokestatic);
-        if (!alive) return;
+        if (!alive)
+            return;
+        // 调用emitop()与emit2()方法生成invokestatic指令及操作数
         emit2(meth);
+        // 从栈中弹出方法调用的实际参数
         state.pop(argsize);
+        // 运行invokestatic指令会产生一个新的数据，其类型就是调用方法的返回类型
+        // 因此向栈中压入一个方法返回类型，同时在invoke()方法中返回一个stackItem[rescode]代表这个新产生的栈顶数据
         state.push(mtype.getReturnType());
     }
 
     /** Emit an invokevirtual instruction.
      */
+    // 生成invokevirutal指令，表示调用实例方法
     public void emitInvokevirtual(int meth, Type mtype) {
         int argsize = width(mtype.getParameterTypes());
         emitop(invokevirtual);
@@ -468,9 +528,11 @@ public class Code {
         state.pop(argsize);
         state.push(mtype.getReturnType());
     }
-
+    // emitXxx()系列方法
+    // emitopX()系列方法最后一个字符X代表数字，可以是0、1、2与4，这些数字表示生成指令时对应操作数所占用的字节数。
     /** Emit an opcode with no operand field.
      */
+    // 生成无操作数的指令，如aaload、goto等指令
     public void emitop0(int op) {
         emitop(op);
         if (!alive) return;
@@ -614,6 +676,7 @@ public class Code {
             markDead();
             break;
         case dup:
+            // 对于dup指令来说，复制栈顶内容后压入栈顶
             state.push(state.stack[state.stacksize-1]);
             break;
         case return_:
@@ -742,6 +805,8 @@ public class Code {
             state.pop(4);
             break;
         case dup2:
+            // 可能复制的是long或double这样占两个槽位的类型，也可能是复制只占一个槽位的两个类型，
+            // 因此emitop()方法在实现时分情况进行了处理。
             if (state.stack[state.stacksize-1] != null) {
                 Type value1 = state.pop1();
                 Type value2 = state.pop1();
@@ -877,6 +942,7 @@ public class Code {
 
     /** Emit an opcode with a one-byte operand field.
      */
+    // 生成带有一个操作数的指令，如bipush、ldc
     public void emitop1(int op, int od) {
         emitop(op);
         if (!alive) return;
@@ -894,21 +960,10 @@ public class Code {
         postop();
     }
 
-    /** The type of a constant pool entry. */
-    private Type typeForPool(Object o) {
-        if (o instanceof Integer) return syms.intType;
-        if (o instanceof Float) return syms.floatType;
-        if (o instanceof String) return syms.stringType;
-        if (o instanceof Long) return syms.longType;
-        if (o instanceof Double) return syms.doubleType;
-        if (o instanceof ClassSymbol) return syms.classType;
-        if (o instanceof Type.ArrayType) return syms.classType;
-        throw new AssertionError(o);
-    }
-
     /** Emit an opcode with a one-byte operand field;
      *  widen if field does not fit in a byte.
      */
+    // 生成带有一个操作数的指令，如果操作数无法用一个字节来表示,则使用wide指令进行扩展
     public void emitop1w(int op, int od) {
         if (od > 0xFF) {
             emitop(wide);
@@ -956,6 +1011,7 @@ public class Code {
     /** Emit an opcode with two one-byte operand fields;
      *  widen if either field does not fit in a byte.
      */
+    // 生成带有两个操作数的指令，如果操作数无法用一个字节来表示，则使用wide指令进行扩展，如iincr指令
     public void emitop1w(int op, int od1, int od2) {
         if (od1 > 0xFF || od2 < -128 || od2 > 127) {
             emitop(wide);
@@ -978,12 +1034,16 @@ public class Code {
 
     /** Emit an opcode with a two-byte operand field.
      */
+    // 生成带有一个操作数的指令，操作数使用两个字节来表示，
+    // 如getstatic、putstatic、new和sipush等指令
     public void emitop2(int op, int od) {
         emitop(op);
-        if (!alive) return;
+        if (!alive)
+            return;
         emit2(od);
         switch (op) {
         case getstatic:
+            // 当指令为getstatic时会向栈中压入一个擦除泛型后的类型，表示运行getstatic指令后产生了一个此类型的数据
             state.push(((Symbol)(pool.pool[od])).erasure(types));
             break;
         case putstatic:
@@ -1054,6 +1114,7 @@ public class Code {
 
     /** Emit an opcode with a four-byte operand field.
      */
+    // 生成带有一个操作数的指令，操作数使用两个字节来表示，如goto_w与jsrw指令
     public void emitop4(int op, int od) {
         emitop(op);
         if (!alive) return;
@@ -1069,7 +1130,19 @@ public class Code {
         }
         // postop();
     }
+    // emitopX()系列方法最后一个字符X代表数字，可以是0、1、2与4，这些数字表示生成指令时对应操作数所占用的字节数。
 
+    /** The type of a constant pool entry. */
+    private Type typeForPool(Object o) {
+        if (o instanceof Integer) return syms.intType;
+        if (o instanceof Float) return syms.floatType;
+        if (o instanceof String) return syms.stringType;
+        if (o instanceof Long) return syms.longType;
+        if (o instanceof Double) return syms.doubleType;
+        if (o instanceof ClassSymbol) return syms.classType;
+        if (o instanceof Type.ArrayType) return syms.classType;
+        throw new AssertionError(o);
+    }
     /** Align code pointer to next `incr' boundary.
      */
     public void align(int incr) {
@@ -1587,14 +1660,19 @@ public class Code {
  * Simulated VM machine state
  ****************************************************************************/
 
+    // 模拟操作数栈
+    // 为了进行类型校验，Javac使用Type类型的数组模拟运行时类型的入栈与出栈，这样就可以在编译期间发现更多类型相关的错误，
+    // 除此之外还能得出字节码指令在运行过程中需要使用的最大栈空间max_stack等信息。
     class State implements Cloneable {
         /** The set of registers containing values. */
         Bits defined;
 
         /** The (types of the) contents of the machine stack. */
+        // 操作数栈模拟
         Type[] stack;
 
         /** The first stack position currently unused. */
+        // 指的就是当前stack数组的大小，由于数组索引是从0开始，因此stacksize-1就是当前栈的栈顶位置
         int stacksize;
 
         /** The numbers of registers containing locked monitors. */
@@ -1603,15 +1681,21 @@ public class Code {
 
         State() {
             defined = new Bits();
+            // 初始化stack数组，默认初始化大小为16，如果栈的深度超时16还会进行扩容
             stack = new Type[16];
         }
 
+        // dup()方法可以复制操作数栈
+        // dup()方法通常在分支跳转时使用，在分支跳转之前调用当前的方法保存栈的状态，等待地址回填时使用
         State dup() {
             try {
+                // dup()方法调用super.clone()方法对state进行浅克隆
                 State state = (State)super.clone();
+                // 对state.stack进行了复制,防止两个State对象操作时相互影响
                 state.defined = defined.dup();
                 state.stack = stack.clone();
-                if (locks != null) state.locks = locks.clone();
+                if (locks != null)
+                    state.locks = locks.clone();
                 if (debugCode) {
                     System.err.println("duping state " + this);
                     dump();
@@ -1640,15 +1724,21 @@ public class Code {
             locks[nlocks] = -1;
         }
 
+        // push()方法可以向栈中压入一个类型
         void push(Type t) {
-            if (debugCode) System.err.println("   pushing " + t);
+            if (debugCode)
+                System.err.println("   pushing " + t);
             switch (t.tag) {
             case TypeTags.VOID:
+                // t为void类型时不需要做任何处理，直接返回即可
                 return;
             case TypeTags.BYTE:
             case TypeTags.CHAR:
             case TypeTags.SHORT:
             case TypeTags.BOOLEAN:
+                // 当t为byte、char、short与boolean类型时将t更新为int类型
+                // 由于Java虚拟机大部分的指令都没有支持byte、char、short和boolean类型，
+                // 因此Javac会在编译期将它们当int类型进行处理，其余的保持原有类型即可
                 t = syms.intType;
                 break;
             default:
@@ -1659,7 +1749,9 @@ public class Code {
                 System.arraycopy(stack, 0, newstack, 0, stack.length);
                 stack = newstack;
             }
+            // 将类型压入栈内，由此也可以看出，stacksize并不表示栈中存放的具体类型的数量，仅能表示栈的大小
             stack[stacksize++] = t;
+            // 不过还需要对double与long类型做处理，因为这两个类型需要用两个连续的槽来存储，将第2个存储位置设置为null
             switch (width(t)) {
             case 1:
                 break;
@@ -1670,40 +1762,49 @@ public class Code {
                 throw new AssertionError(t);
             }
             if (stacksize > max_stack)
+                // push()方法最后还可能会更新max_stack的值
                 max_stack = stacksize;
         }
 
+        // 出栈一个槽位
         Type pop1() {
             if (debugCode) System.err.println("   popping " + 1);
             stacksize--;
             Type result = stack[stacksize];
+            // 数据出栈后将相应槽上的值设置为空
             stack[stacksize] = null;
             Assert.check(result != null && width(result) == 1);
             return result;
         }
 
+        // peek()方法可以获取栈顶存储的类型，不进行弹栈操作
         Type peek() {
             return stack[stacksize-1];
         }
 
+        // 出栈两个槽位
         Type pop2() {
             if (debugCode) System.err.println("   popping " + 2);
             stacksize -= 2;
             Type result = stack[stacksize];
+            // 数据出栈后将相应槽上的值设置为空
             stack[stacksize] = null;
             Assert.check(stack[stacksize+1] == null
                     && result != null && width(result) == 2);
             return result;
         }
 
+        // 根据个数出栈
         void pop(int n) {
             if (debugCode) System.err.println("   popping " + n);
             while (n > 0) {
+                // 数据出栈后将相应槽上的值设置为空
                 stack[--stacksize] = null;
                 n--;
             }
         }
 
+        // 按类型出栈,如果类型为long或者double，需要连续弹出两个槽中保存的值
         void pop(Type t) {
             pop(width(t));
         }
@@ -1822,13 +1923,18 @@ public class Code {
  ****************************************************************************/
 
     /** A live range of a local variable. */
+    // 本地变量信息对象
+    // 模拟本地变量表
     static class LocalVar {
+        // 表示局部变量的符号
         final VarSymbol sym;
+        // 表示这个局部变量在本地变量表中的存储位置
         final char reg;
         char start_pc = Character.MAX_VALUE;
         char length = Character.MAX_VALUE;
         LocalVar(VarSymbol v) {
             this.sym = v;
+            // 构造方法中获取v.adr值进行初始化
             this.reg = (char)v.adr;
         }
         public LocalVar dup() {
@@ -1840,6 +1946,7 @@ public class Code {
     };
 
     /** Local variables, indexed by register. */
+    // 通过LocalVar[]数组模拟本地变量表
     LocalVar[] lvar;
 
     /** Add a new local variable. */
@@ -1854,6 +1961,7 @@ public class Code {
         }
         Assert.checkNull(lvar[adr]);
         if (pendingJumps != null) resolvePending();
+        // 将v封装为LocalVar对象后存储到下标为adr的本地变量表中
         lvar[adr] = new LocalVar(v);
         state.defined.excl(adr);
     }
@@ -1945,20 +2053,29 @@ public class Code {
 
     /** Create a new local variable address and return it.
      */
+    // 第三个重载方法
+    // 返回当前变量在变量表中的存储位置reg
     private int newLocal(int typecode) {
         int reg = nextreg;
+        // 调用width()方法获取type所占的本地变量表的槽位数
         int w = width(typecode);
+        // 更新nextreg和max_locals变量的值
         nextreg = reg + w;
         if (nextreg > max_locals) max_locals = nextreg;
         return reg;
     }
 
+    // 第二个重载方法
     private int newLocal(Type type) {
+        // 调用typecode()方法对type做了类型映射
         return newLocal(typecode(type));
     }
 
+    // 第一个重载方法
     public int newLocal(VarSymbol v) {
+        // 调用第2个newLocal()方法以获取一个本地变量表的存储位置
         int reg = v.adr = newLocal(v.erasure(types));
+        // 然后通过v.adr保存这个存储位置
         addLocalVar(v);
         return reg;
     }

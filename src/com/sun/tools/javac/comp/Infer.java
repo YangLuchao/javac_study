@@ -50,6 +50,7 @@ public class Infer {
         new Context.Key<Infer>();
 
     /** A value for prototypes that admit any type, including polymorphic ones. */
+    // 允许任何类型（包括泛型）的原型的值。
     public static final Type anyPoly = new Type(NONE, null);
 
     Symtab syms;
@@ -203,15 +204,20 @@ public class Infer {
 
     /** Instantiate undetermined type variable to its minimal upper bound.
      *  Throw a NoInstanceException if this not possible.
+     *  将未确定类型变量实例化为其最小上限。如果这不可能，则抛出 NoInstanceException
      */
     void maximizeInst(UndetVar that, Warner warn) throws NoInstanceException {
         List<Type> hibounds = Type.filter(that.hibounds, errorFilter);
+        // that.inst为空时表示还没有推断出具体的类型
         if (that.inst == null) {
             if (hibounds.isEmpty())
+                // 列表为空，推断出来的类型就是Object
                 that.inst = syms.objectType;
             else if (hibounds.tail.isEmpty())
+                // 列表中只有一个元素，则这个元素就是推断出来的类型
                 that.inst = hibounds.head;
             else
+                // 有两个或更多元素，调用glb()方法求列表中所有类型的最大下界
                 that.inst = types.glb(hibounds);
         }
         if (that.inst == null ||
@@ -249,17 +255,25 @@ public class Infer {
         }
     };
 
-    /** Instantiate undetermined type variable to the lub of all its lower bounds.
+    /** Instantiate undetermined type variable to the lob of all its lower bounds.
      *  Throw a NoInstanceException if this not possible.
      */
+    // minimizeInst()方法推断具体的类型
+    // 将未确定类型变量实例化为其所有下限的 lub。如果这不可能，则抛出 NoInstanceException。
     void minimizeInst(UndetVar that, Warner warn) throws NoInstanceException {
+        // Type.filter()方法过滤that.lobounds列表中所有的错误类型，得到lobounds列表，
         List<Type> lobounds = Type.filter(that.lobounds, errorFilter);
+        // Type.filter()方法根据lobounds列表中的值推断出具体类型并保存到inst变量中
         if (that.inst == null) {
             if (lobounds.isEmpty())
+                // 当lobounds列表为空时推断出的具体类型为Object
                 that.inst = syms.botType;
             else if (lobounds.tail.isEmpty())
+                // 当lobounds列表中有一个值并且为引用类型时，将这个类型当作推断出的具体类型
                 that.inst = lobounds.head.isPrimitive() ? syms.errType : lobounds.head;
             else {
+                // 当lobounds列表中含有至少两个值时，调用types.lub()方法计算类型的最小上界，计算出的最小上界就是推断出的具体类型
+                // 例13-8
                 that.inst = types.lub(lobounds);
             }
             if (that.inst == null || that.inst.tag == ERROR)
@@ -296,15 +310,22 @@ public class Infer {
      *  a subtype of type `to', return the instantiated type.
      *  If no instantiation exists, or if several incomparable
      *  best instantiations exist throw a NoInstanceException.
+     *  尝试将表达式类型“that”实例化为给定类型“to”。
+     *  如果存在使该类型成为“to”类型的子类型的最大实例化，则返回实例化类型。
+     *  如果不存在实例化，或者存在多个无与伦比的最佳实例化，则抛出 NoInstanceException。
      */
-    public Type instantiateExpr(ForAll that,
-                                Type to,
+    public Type instantiateExpr(ForAll that,// that就是之前讲到的UninferredReturnType对象
+                                Type to, // 而to为目标转换类型，假设这个类型为T
                                 Warner warn) throws InferenceException {
+        // 调用Type.map()方法将that.tvars列表中的元素重新封装为UndetVar对象，
+        // 需要注意的是that.tvars就是instantiateMethod()方法中restvars列表，
+        // 代表剩下的待推断的类型变量列表。
         List<Type> undetvars = Type.map(that.tvars, fromTypeVarFun);
         for (List<Type> l = undetvars; l.nonEmpty(); l = l.tail) {
             UndetVar uv = (UndetVar) l.head;
             TypeVar tv = (TypeVar)uv.qtype;
             ListBuffer<Type> hibounds = new ListBuffer<Type>();
+            // that.getConstraints()方法会间接调用UninferredMethodType匿名类对象的getConstraints()方法
             for (Type t : that.getConstraints(tv, ConstraintKind.EXTENDS)) {
                 hibounds.append(types.subst(t, that.tvars, undetvars));
             }
@@ -315,18 +336,25 @@ public class Infer {
             }
             uv.hibounds = hibounds.toList();
         }
+        // types.subst()方法将被代理的方法含有的that.tvars类型变量全部替换为对应undetvars列表中的类型后得到qtype
         Type qtype1 = types.subst(that.qtype, that.tvars, undetvars);
+        // 调用types.isSubtype()方法判断qtype1是否为types.boxedTypeOrType(to)或to的子类，如果不是将报编译报错
         if (!types.isSubtype(qtype1,
+                // 调用的boxedTypeOrType()方法对to进行类型装箱转换，如果不为基本类型则直接返回类型本身
                 qtype1.tag == UNDETVAR ? types.boxedTypeOrType(to) : to)) {
             throw unambiguousNoInstanceException
                 .setMessage("infer.no.conforming.instance.exists",
                             that.tvars, that.qtype, to);
         }
+
+        // 将类型推断信息保存到待推断类型变量对应的UndetVar对象的hibounds与inst中之后，
+        // 在instantiateExpr()方法中调用maximizeInst()方法进行类型推断
         for (List<Type> l = undetvars; l.nonEmpty(); l = l.tail)
             maximizeInst((UndetVar) l.head, warn);
-        // System.out.println(" = " + qtype1.map(getInstFun));//DEBUG
 
         // check bounds
+        // 推断出具体类型后就可以进行类型验证
+        // Type.map()方法处理undetvars，一般情况下都是获取每个UndetVar对象的inst值，所以targs列表中保存的是具体推断出的类型
         List<Type> targs = Type.map(undetvars, getInstFun);
         if (Type.containsAny(targs, that.tvars)) {
             //replace uninferred type-vars
@@ -334,6 +362,8 @@ public class Infer {
                     that.tvars,
                     instaniateAsUninferredVars(undetvars, that.tvars));
         }
+        // 调用UninferredReturnType类的inst()方法获取方法的返回类型，这样就可以调用checkType()方法判断方法的返回类型是否可以转换为目标类型了
+        // 由于已经推断出了具体类型，所以对UninferredMethodType与UninferredReturnType这两个代理对象的实际代理类型qtype进行更新
         return chk.checkType(warn.pos(), that.inst(targs, types), to);
     }
     //where
@@ -358,6 +388,7 @@ public class Infer {
     /** Instantiate method type `mt' by finding instantiations of
      *  `tvars' so that method can be applied to `argtypes'.
      */
+    // 通过查找“tvars”的实例来实例化方法类型“mt”，以便可以将方法应用于“argtypes”。
     public Type instantiateMethod(final Env<AttrContext> env,
                                   List<Type> tvars,
                                   MethodType mt,
@@ -366,22 +397,20 @@ public class Infer {
                                   final boolean allowBoxing,
                                   final boolean useVarargs,
                                   final Warner warn) throws InferenceException {
-        //-System.err.println("instantiateMethod(" + tvars + ", " + mt + ", " + argtypes + ")"); //DEBUG
+        // 调用types.map()方法为每个需要推断的类型变量建立对应的UndetVar对象
+        // UndetVar对象的qtype保存了需要推断的类型变量
         List<Type> undetvars = Type.map(tvars, fromTypeVarFun);
         List<Type> formals = mt.argtypes;
-        //need to capture exactly once - otherwise subsequent
-        //applicability checks might fail
         final List<Type> capturedArgs = types.capture(argtypes);
         List<Type> actuals = capturedArgs;
         List<Type> actualsNoCapture = argtypes;
-        // instantiate all polymorphic argument types and
-        // set up lower bounds constraints for undetvars
         Type varargsFormal = useVarargs ? formals.last() : null;
         if (varargsFormal == null &&
                 actuals.size() != formals.size()) {
             throw unambiguousNoInstanceException
                 .setMessage("infer.arg.length.mismatch");
         }
+        // 通过第1阶段与第2阶段查找方法
         while (actuals.nonEmpty() && formals.head != varargsFormal) {
             Type formal = formals.head;
             Type actual = actuals.head.baseType();
@@ -389,6 +418,8 @@ public class Infer {
             if (actual.tag == FORALL)
                 actual = instantiateArg((ForAll)actual, formal, tvars, warn);
             Type undetFormal = types.subst(formal, tvars, undetvars);
+            // 调用types.isConvertible()或isSubtypeUnchecked()方法检查实际参数的类型是否与形式参数的类型兼容，其实就是通过第一阶段、第二阶段或第三阶段查找匹配的方法，
+            // 无论调用哪一个方法，最终都会调用types.isSubtype()方法。
             boolean works = allowBoxing
                 ? types.isConvertible(actual, undetFormal, warn)
                 : types.isSubtypeUnchecked(actual, undetFormal, warn);
@@ -405,7 +436,7 @@ public class Infer {
         if (formals.head != varargsFormal) // not enough args
             throw unambiguousNoInstanceException.setMessage("infer.arg.length.mismatch");
 
-        // for varargs arguments as well
+        // 通过第3阶段查找方法
         if (useVarargs) {
             Type elemType = types.elemtype(varargsFormal);
             Type elemUndet = types.subst(elemType, tvars, undetvars);
@@ -425,7 +456,9 @@ public class Infer {
             }
         }
 
-        // minimize as yet undetermined type variables
+        // minimizeInst()方法推断具体的类型
+        // 当完成对UndetVar对象的lobounds列表的填充后，
+        // 就可以根据lobounds列表中的值推断UndetVar对象中qtype的具体类型了
         for (Type t : undetvars)
             minimizeInst((UndetVar) t, warn);
 
@@ -444,25 +477,32 @@ public class Infer {
         for (Type t : undetvars) {
             UndetVar uv = (UndetVar)t;
             if (uv.inst.tag == BOT) {
+                // 当uv.inst.tag值为BOT时，表示UndetVar对象uv还没有推断出具体的类型
+                // 向4个集合中添加uv或者uv.qtype
                 restvars.append(uv.qtype);
                 restundet.append(uv);
                 insttypes.append(uv.qtype);
                 undettypes.append(uv);
+                // uv.inst置为空
                 uv.inst = null;
+                // 这样后续还会继续结合上下文进行类型推断
             } else {
+                // 向insttypes与undettypes中添加推断出来的具体类型uv.inst
                 insttypes.append(uv.inst);
                 undettypes.append(uv.inst);
             }
         }
+        // 检查实际类型参数和推断出来的类型参数是否符合要求
         checkWithinBounds(tvars, undettypes.toList(), warn);
 
+        // types.subst()方法将mt中含有推断出具体类型的类型变量替换为具体类型
         mt = (MethodType)types.subst(mt, tvars, insttypes.toList());
-
+        // 当restvars列表不为空时，表示还有待推断的类型，方法返回UninferredMethodType对象
         if (!restvars.isEmpty()) {
-            // if there are uninstantiated variables,
-            // quantify result type with them
             final List<Type> inferredTypes = insttypes.toList();
             final List<Type> all_tvars = tvars; //this is the wrong tvars
+            // 如果restvars列表中还有元素，则表示还有待推断的类型变量，JDK 1.7版本的Javac还会结合赋值表达式左侧的信息进行类型推断
+            // 调用instantiateMethod()方法后返回的mt可能是MethodType类型，也可能是UninferredReturnType类型
             return new UninferredMethodType(mt, restvars.toList()) {
                 @Override
                 List<Type> getConstraints(TypeVar tv, ConstraintKind ck) {
@@ -480,9 +520,9 @@ public class Infer {
                 }
                 @Override
                 void check(List<Type> inferred, Types types) throws NoInstanceException {
-                    // check that actuals conform to inferred formals
+                    // 检查实际的参数类型是否与推断出的形式参数类型兼容
                     checkArgumentsAcceptable(env, capturedArgs, getParameterTypes(), allowBoxing, useVarargs, warn);
-                    // check that inferred bounds conform to their bounds
+                    // 检查推断出的类型是否在声明的类型变量的上界范围之内
                     checkWithinBounds(all_tvars,
                            types.subst(inferredTypes, tvars, inferred), warn);
                     if (useVarargs) {
@@ -491,9 +531,12 @@ public class Infer {
             }};
         }
         else {
+            // 如果已经没有待推断的类型变量，则restvars列表为空，调用isEmpty()方法将返回true
             // check that actuals conform to inferred formals
+            // 检查实际参数的类型是否与形式参数的类型兼容
             checkArgumentsAcceptable(env, capturedArgs, mt.getParameterTypes(), allowBoxing, useVarargs, warn);
             // return instantiated version of method type
+            // 返回方法类型的实例化版本
             return mt;
         }
     }
@@ -504,14 +547,20 @@ public class Infer {
          * The return type of a partially uninferred method type is a ForAll
          * type - when the return type is instantiated (see Infer.instantiateExpr)
          * the underlying method type is also updated.
+         * 表示部分未推断的方法类型的委托类型。部分未推断的方法类型的返回类型是 ForAll 类型 -
+         * 当返回类型被实例化时（请参阅 Infer.instantiateExpr），基础方法类型也会更新
          */
+        // UninferredMethodType对象表示含有待推断类型变量的方法，
         static abstract class UninferredMethodType extends DelegatedType {
 
+            // tvars保存了待推断的类型变量
             final List<Type> tvars;
 
             public UninferredMethodType(MethodType mtype, List<Type> tvars) {
+                // tagMETHOD, 待推断的对象是methodType
                 super(METHOD, new MethodType(mtype.argtypes, null, mtype.thrown, mtype.tsym));
                 this.tvars = tvars;
+                // 调用asMethodType()方法一般会获取到这个新的MethodType对象，然后restype被更新为一个新创建的UninferredReturnType对象
                 asMethodType().restype = new UninferredReturnType(tvars, mtype.restype);
             }
 
@@ -526,11 +575,12 @@ public class Infer {
             }
 
             void instantiateReturnType(Type restype, List<Type> inferred, Types types) throws NoInstanceException {
-                //update method type with newly inferred type-arguments
+                // 创建一个新的MethodType对象并赋值给qtype，新的MethodType对象的形式参数类型、返回类型及异常抛出类型都进行了类型替换
                 qtype = new MethodType(types.subst(getParameterTypes(), tvars, inferred),
                                        restype,
                                        types.subst(UninferredMethodType.this.getThrownTypes(), tvars, inferred),
                                        UninferredMethodType.this.qtype.tsym);
+                // 最后调用check()方法检查推断出来的类型是否满足要求
                 check(inferred, types);
             }
 
@@ -540,11 +590,16 @@ public class Infer {
 
             class UninferredReturnType extends ForAll {
                 public UninferredReturnType(List<Type> tvars, Type restype) {
+                    // 初始化ForAll类中定义的tvars变量与DelegatedType类中定义的qtype变量
+                    // tvars中保存了待推断的类型变量，而qtype保存了mtype.restype，也就是方法的返回类型
                     super(tvars, restype);
                 }
                 @Override
                 public Type inst(List<Type> actuals, Types types) {
+                    // 调用父类的inst()方法更新UninferredReturnType对象
+                    // UninferredReturnType类的直接父类为ForAll
                     Type newRestype = super.inst(actuals, types);
+                    // 接着在inst()方法中调用instantiateReturnType()方法更新UninferredMethodType对象
                     instantiateReturnType(newRestype, actuals, types);
                     return newRestype;
                 }
@@ -589,16 +644,25 @@ public class Infer {
 
     /** check that type parameters are within their bounds.
      */
+    // 检查类型参数是否在其范围内
+    // 如果没有推断出具体类型，checkWithinBounds()方法不进行边界检查，
+    // 对于推断出来的类型，checkWithinBounds()方法会检查类型是否在类型变量声明的上界内
     void checkWithinBounds(List<Type> tvars,
                                    List<Type> arguments,
                                    Warner warn)
         throws InvalidInstanceException {
+        // tvars参数列表保存着所有待推断的类型变量
+        // arguments参数列表中还可能含有没有推断出具体类型的UndetVar对象
         for (List<Type> tvs = tvars, args = arguments;
              tvs.nonEmpty();
              tvs = tvs.tail, args = args.tail) {
             if (args.head instanceof UndetVar ||
-                    tvars.head.getUpperBound().isErroneous()) continue;
+                    tvars.head.getUpperBound().isErroneous())
+                continue;
+            // types.getBounds()方法获取类型变量的上界
+            // 由于上界的类型也可能含有类型变量甚至就是类型变量，而这些类型变量可能已经推断出具体的类型，所以也需要调用types.subst()方法将上界中含有已经推断出具体类型的类型变量替换为具体的类型
             List<Type> bounds = types.subst(types.getBounds((TypeVar)tvs.head), tvars, arguments);
+            // 最后调用types.isSubtypeUnchecked()方法判断实际推断出的具体类型是否在上界内，如果不在上界内，checkWithinBounds()方法将抛出InvalidInstanceException异常，从而终止编译流程
             if (!types.isSubtypeUnchecked(args.head, bounds, warn))
                 throw invalidInstanceException
                     .setMessage("inferred.do.not.conform.to.bounds",

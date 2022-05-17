@@ -1309,6 +1309,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
      * the current implicitSourcePolicy is taken into account.
      * The preparation stops as soon as an error is found.
      */
+    // 解语法糖
     protected void desugar(final Env<AttrContext> env, Queue<Pair<Env<AttrContext>, JCClassDecl>> results) {
         if (shouldStop(CompileState.TRANSTYPES))
             return;
@@ -1417,7 +1418,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
                 return;
             }
 
-            //translate out inner classes
+            // 解内部类
             List<JCTree> cdefs = lower.translateTopLevelClass(env, env.tree, localMake);
             compileStates.put(env, CompileState.LOWER);
 

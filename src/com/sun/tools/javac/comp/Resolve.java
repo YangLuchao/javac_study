@@ -352,10 +352,11 @@ public class Resolve {
         if (useVarargs && (m.flags() & VARARGS) == 0)
             throw inapplicableMethodException.setMessage();
         // 例11-17
+        // 例13-6/13-7
+        // 调用types.memberType()方法计算m在site下的类型
         Type mt = types.memberType(site, m);
 
-        // tvars is the list of formal type variables for which type arguments
-        // need to inferred.
+        // tvars 是需要推断类型参数的形式类型变量的列表。
         List<Type> tvars = null;
         if (env.info.tvars != null) {
             tvars = types.newInstances(env.info.tvars);
@@ -364,33 +365,44 @@ public class Resolve {
         if (typeargtypes == null)
             typeargtypes = List.nil();
         if (mt.tag != FORALL && typeargtypes.nonEmpty()) {
-            // This is not a polymorphic method, but typeargs are supplied
-            // which is fine, see JLS 15.12.2.1
+            // 为非泛型方法传递了实际类型参数
         } else if (mt.tag == FORALL && typeargtypes.nonEmpty()) {
+            // 当mt为泛型方法并且实际类型参数的类型列表不为空时
+            // 为泛型方法传递了实际类型参数
             ForAll pmt = (ForAll) mt;
             if (typeargtypes.length() != pmt.tvars.length())
                 throw inapplicableMethodException.setMessage("arg.length.mismatch"); // not enough args
-            // Check type arguments are within bounds
+            // 检查实际类型参数的类型是否是上界之内
+            // 检查每个实际类型参数的类型是否在形式类型参数中指定的上界内
             List<Type> formals = pmt.tvars;
             List<Type> actuals = typeargtypes;
             while (formals.nonEmpty() && actuals.nonEmpty()) {
+                // 调用types.getBounds()方法获取形式类型参数中指定的上界
+                // 然后调用subst()方法将上界中含有的所有方法中声明的类型变量替换为实际类型
                 List<Type> bounds = types.subst(types.getBounds((TypeVar)formals.head),
                                                 pmt.tvars, typeargtypes);
+                // 然后检查实际类型是否在上界之内
                 for (; bounds.nonEmpty(); bounds = bounds.tail)
                     if (!types.isSubtypeUnchecked(actuals.head, bounds.head, warn))
                         throw inapplicableMethodException.setMessage("explicit.param.do.not.conform.to.bounds",actuals.head, bounds);
                 formals = formals.tail;
                 actuals = actuals.tail;
             }
+            // 最后调用subst()方法对pmt.qtype进行类型变量替换
             mt = types.subst(pmt.qtype, pmt.tvars, typeargtypes);
+            // 这样最终的mt方法经过memberType()方法与subst()方法处理后，通常形式参数、抛出的异常等都不会再含有类型变量了，所以也不需要进行类型推断
         } else if (mt.tag == FORALL) {
+            // 当mt是泛型方法并且实际的类型参数的类型列表为空时，需要进行类型推断
             ForAll pmt = (ForAll) mt;
+            // 在实际的类型参数推断过程中，为了不影响形式类型参数的原有信息
+            // 调用types.newInstances()方法创建与泛型方法中声明的需要进行类型推断的类型变量相对应的新的类型变量
             List<Type> tvars1 = types.newInstances(pmt.tvars);
             tvars = tvars.appendList(tvars1);
+            // 然后调用types.subst()方法将方法中含有的类型变量全部替换为对应的新创建的类型变量
             mt = types.subst(pmt.qtype, pmt.tvars, tvars1);
         }
 
-        // find out whether we need to go the slow route via infer
+        // 当tvars.tail不为空时表示tvars列表中含有需要推断的类型变量
         boolean instNeeded = tvars.tail != null || /*inlined: tvars.nonEmpty()*/
                 polymorphicSignature;
         for (List<Type> l = argtypes;
@@ -401,6 +413,8 @@ public class Resolve {
         }
 
         if (instNeeded)
+            // 需要进行类型推断
+            // 调用infer.instantiateMethod()方法进行类型推断
             return polymorphicSignature ?
                 infer.instantiatePolymorphicSignatureInstance(env, site, m.name, (MethodSymbol)m, argtypes) :
                 infer.instantiateMethod(env,
@@ -411,7 +425,7 @@ public class Resolve {
                                     allowBoxing,
                                     useVarargs,
                                     warn);
-        // 对非泛型方法进行处理
+        // 检查实际参数类型是否与形式参数类型兼容
         // 对传递的实际参数的类型进行兼容性检查，如果有不匹配的类型出现，会抛出相关的异常信息
         // 检查argtypes中的实际参数类型是否能转换为mt方法的形式参数类型
         // 如果能转换，则返回m在site类型下的方法类型，否则抛出InapplicableMethodException类型的异常，表示m不是一个匹配的方法。instantiate()方法最终返回null
@@ -1118,15 +1132,24 @@ public class Resolve {
      *  @param allowBoxing Allow boxing conversions of arguments.
      *  @param useVarargs Box trailing arguments into an array for varargs.
      */
+    // 查找匹配给定名称、类型和值参数的非限定方法。
     Symbol findFun(Env<AttrContext> env, Name name,
                    List<Type> argtypes, List<Type> typeargtypes,
                    boolean allowBoxing, boolean useVarargs) {
         Symbol bestSoFar = methodNotFound;
         Symbol sym;
+        // 第一部分是对当前类及当前类的父类和接口中查找的实现
+        // 在第一部分的查找过程中，由于方法不像变量一样可以在本地作用域内定义，
+        // 所以只需要调用findMethod()方法从当前类和当前类的超类members_field中查找，
+        // 如果找不到，就在封闭类及封闭类的超类的members_field中查找。
+        // 需要注意的是，在循环判断的过程中，其实也对静态环境引用非静态方法做了判断，
+        // 实现和findType()方法类似，为了能让重要的查找逻辑简单明了，
+        // 没有给出findMethod()方法的相关实现代码
         Env<AttrContext> env1 = env;
         boolean staticOnly = false;
         while (env1.outer != null) {
-            if (isStatic(env1)) staticOnly = true;
+            if (isStatic(env1))
+                staticOnly = true;
             sym = findMethod(
                 env1, env1.enclClass.sym.type, name, argtypes, typeargtypes,
                 allowBoxing, useVarargs, false);
@@ -1134,15 +1157,19 @@ public class Resolve {
                 if (staticOnly &&
                     sym.kind == MTH &&
                     sym.owner.kind == TYP &&
-                    (sym.flags() & STATIC) == 0) return new StaticError(sym);
-                else return sym;
+                    (sym.flags() & STATIC) == 0)
+                    return new StaticError(sym);
+                else
+                    return sym;
             } else if (sym.kind < bestSoFar.kind) {
                 bestSoFar = sym;
             }
-            if ((env1.enclClass.sym.flags() & STATIC) != 0) staticOnly = true;
+            if ((env1.enclClass.sym.flags() & STATIC) != 0)
+                staticOnly = true;
             env1 = env1.outer;
         }
 
+        // 第二部分是从env.toplevel.namedImportScope中查找的实现
         sym = findMethod(env, syms.predefClass.type, name, argtypes,
                          typeargtypes, allowBoxing, useVarargs, false);
         if (sym.exists())
@@ -1165,7 +1192,7 @@ public class Resolve {
         }
         if (bestSoFar.exists())
             return bestSoFar;
-
+        // 第三部分是从env.toplevel.starImportScope查找的实现
         e = env.toplevel.starImportScope.lookup(name);
         for (; e.scope != null; e = e.next()) {
             sym = e.sym;
@@ -1855,17 +1882,20 @@ public class Resolve {
      *  @param typeargtypes  The types of the constructor invocation's type
      *                   arguments.
      */
+    // 解析钻石语法的构造函数，返回符号
     Symbol resolveDiamond(DiagnosticPosition pos,
                               Env<AttrContext> env,
                               Type site,
                               List<Type> argtypes,
                               List<Type> typeargtypes) {
         Symbol sym = startResolution();
+        // 和普通方法一样，构造方法也是分三个阶段的查找
         List<MethodResolutionPhase> steps = methodResolutionSteps;
         while (steps.nonEmpty() &&
                steps.head.isApplicable(boxingEnabled, varargsEnabled) &&
                sym.kind >= ERRONEOUS) {
             currentStep = steps.head;
+            // 够着函数的引用
             sym = resolveConstructor(pos, env, site, argtypes, typeargtypes,
                     steps.head.isBoxingRequired(),
                     env.info.varArgs = steps.head.isVarargsRequired());
@@ -1910,6 +1940,8 @@ public class Resolve {
                               List<Type> typeargtypes,
                               boolean allowBoxing,
                               boolean useVarargs) {
+        // 调用findMethod()方法查找名称为<init>的方法，
+        // <init>也是前面调用getSyntheticScopeMapping()方法合成新的构造方法时指定的名称
         Symbol sym = findMethod(env, site,
                                 names.init, argtypes,
                                 typeargtypes, allowBoxing,
@@ -1942,9 +1974,14 @@ public class Resolve {
      *  @param env       The environment current at the operation.
      *  @param argtypes  The types of the operands.
      */
+    // 解析运算符
+    // 参数optag就是在visitUnary()方法中通过调用tree.getTag()方法得到的值
     Symbol resolveOperator(DiagnosticPosition pos, int optag,
                            Env<AttrContext> env, List<Type> argtypes) {
+        // 调用TreeInfo对象treeinfo的operatorName()方法得到运算符名称
+        // 前置自增与后置自增的名称都为“++”，前置自减与后置自减的名称都为“--”，所以无论前置还是后置，对应的都是同一个OperatorSymbol对象
         Name name = treeinfo.operatorName(optag);
+        // 调用findMethod()方法在syms.predefClass.type中查找符号引用
         Symbol sym = findMethod(env, syms.predefClass.type, name, argtypes,
                                 null, false, false, true);
         if (boxingEnabled && sym.kind >= WRONG_MTHS)
@@ -1960,6 +1997,7 @@ public class Resolve {
      *  @param env       The environment current at the operation.
      *  @param arg       The type of the operand.
      */
+    // 一元运算符引用消除
     Symbol resolveUnaryOperator(DiagnosticPosition pos, int optag, Env<AttrContext> env, Type arg) {
         return resolveOperator(pos, optag, env, List.of(arg));
     }
@@ -1971,11 +2009,13 @@ public class Resolve {
      *  @param left      The types of the left operand.
      *  @param right     The types of the right operand.
      */
+    // 二元运算符、复合赋值运算符引用消除
     Symbol resolveBinaryOperator(DiagnosticPosition pos,
                                  int optag,
                                  Env<AttrContext> env,
                                  Type left,
                                  Type right) {
+        // resolveBinaryOperator()方法也调用了resolveOperator()方法进行查找，只是查找时的形式参数变为了两个
         return resolveOperator(pos, optag, env, List.of(left, right));
     }
 
@@ -1986,6 +2026,10 @@ public class Resolve {
      * @param c             The qualifier.
      * @param name          The identifier's name.
      */
+    // 解析“c.name”，其中 name == this 或 name == super
+    // 符号输入的第二阶段时介绍过complete(Symbol sym)方法，这个方法中处理类型时，
+    // 会向类型对应的本地作用域中输入thisSym与superSym符号，
+    // 所以resolveSelf()方法可以通过符号表查找this或super关键字引用的符号
     Symbol resolveSelf(DiagnosticPosition pos,
                        Env<AttrContext> env,
                        TypeSymbol c,

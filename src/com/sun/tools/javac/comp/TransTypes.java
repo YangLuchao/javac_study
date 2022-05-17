@@ -223,7 +223,7 @@ public class TransTypes extends TreeTranslator {
                                                meth.name,
                                                bridgeType,
                                                origin);
-        if (!hypothetical) {
+        if (!hypothetical) { // 当hypothetical的值为false时，合成桥方法
             JCMethodDecl md = make.MethodDef(bridge, null);
 
             // The bridge calls this.impl(..), if we have an implementation
@@ -275,23 +275,41 @@ public class TransTypes extends TreeTranslator {
      *  @param origin  The class in which the bridge would go.
      *  @param bridges The list buffer to which the bridge would be added.
      */
+    // 对父类及接口中的每个成员都调用addBridgeIfNeeded()方法进行判断
+    // 是否有必要添加桥方法
     void addBridgeIfNeeded(DiagnosticPosition pos,
                            Symbol sym,
                            ClassSymbol origin,
                            ListBuffer<JCTree> bridges) {
+        // 第1个if语句
+        // 在第1个if语句的判断中，
+
         if (sym.kind == MTH &&
             sym.name != names.init &&
+            // 当sym为私有方法或者静态方法时不需要添加桥方法，因为私有方法或者静态方法没有覆写的特性；
             (sym.flags() & (PRIVATE | STATIC)) == 0 &&
+            // 当sym为合成的方法时不需要添加桥方法
             (sym.flags() & (SYNTHETIC | OVERRIDE_BRIDGE)) != SYNTHETIC &&
+            // 当调用sym.isMemberOf()方法返回true时，表示满足如下几个条件：
+            /*
+                1:origin是sym.owner的子类；
+                2:sym可以继承到origin中，主要通过判断方法的访问修饰符；
+                3:符号没有被隐藏。
+             */
+                // 满足以上3个条件的方法才能在origin类中覆写，所以需要添加桥方法
             sym.isMemberOf(origin, types))
         {
             MethodSymbol meth = (MethodSymbol)sym;
             MethodSymbol bridge = meth.binaryImplementation(origin, types);
             MethodSymbol impl = meth.implementation(origin, types, true, overrideBridgeFilter);
+            // 第2个if语句
+            // 例13-12/13-13/13-14
             if (bridge == null ||
                 bridge == meth ||
                 (impl != null && !bridge.owner.isSubClass(impl.owner, types))) {
                 // No bridge was added yet.
+                // 第3个if语句
+                // 判断当impl不为空并且isBridgeNeeded()方法返回true时才会添加，impl不为空保证有覆写的方法，isBridgeNeeded()方法判断需要添加桥方法
                 if (impl != null && isBridgeNeeded(meth, impl, origin.type)) {
                     addBridge(pos, meth, impl, origin, bridge==impl, bridges);
                 } else if (impl == meth
@@ -301,6 +319,7 @@ public class TransTypes extends TreeTranslator {
                            && (origin.flags() & PUBLIC) > (impl.owner.flags() & PUBLIC)) {
                     // this is to work around a horrible but permanent
                     // reflection design error.
+                    // 添加桥方法
                     addBridge(pos, meth, impl, origin, false, bridges);
                 }
             } else if ((bridge.flags() & (SYNTHETIC | OVERRIDE_BRIDGE)) == SYNTHETIC) {
@@ -339,18 +358,22 @@ public class TransTypes extends TreeTranslator {
         private boolean isBridgeNeeded(MethodSymbol method,
                                        MethodSymbol impl,
                                        Type dest) {
-            if (impl != method) {
-                // If either method or impl have different erasures as
-                // members of dest, a bridge is needed.
+            if (impl != method) { // 不相等，说明两个方法不为同一个方法
                 Type method_erasure = method.erasure(types);
+                // method与泛型擦除后的method_erasure不相等
+                // 调用isSameMemberWhenErased()方法判断method方法在dest类型中泛型擦除前与泛型擦除后是否相同，如果不同，则需要添加桥方法
+                // 例13-15
                 if (!isSameMemberWhenErased(dest, method, method_erasure))
                     return true;
                 Type impl_erasure = impl.erasure(types);
+                // impl与泛型擦除后的impl_erasure不相等。同样通过调用isSameMemberWhen Erased()方法来判断
+                // 例13-16
                 if (!isSameMemberWhenErased(dest, impl, impl_erasure))
                     return true;
 
-                // If the erasure of the return type is different, a
-                // bridge is needed.
+                // method_erasure与impl_erasure的返回类型不相等，通过调用types.isSameType()方法进行判断
+                // 从JDK 1.5版本开始，一个方法覆写另外一个方法时，可以指定一个更严格的返回类型（协变），借助桥方法来实现
+                // 例13-17
                 return !types.isSameType(impl_erasure.getReturnType(),
                                          method_erasure.getReturnType());
             } else {
@@ -364,6 +387,8 @@ public class TransTypes extends TreeTranslator {
                 // The erasure of the return type is always the same
                 // for the same symbol.  Reducing the three tests in
                 // the other branch to just one:
+                // 如果method等于impl并且都不为抽象方法，则只需要判断其中的一个方法method与泛型擦除后的类型是否相同即可
+                // 例13-18
                 return !isSameMemberWhenErased(dest, method, method.erasure(types));
             }
         }
@@ -380,12 +405,13 @@ public class TransTypes extends TreeTranslator {
             return types.isSameType(erasure(types.memberType(type, method)),
                                     erasure);
         }
-
+    // 添加桥方法
     void addBridges(DiagnosticPosition pos,
                     TypeSymbol i,
                     ClassSymbol origin,
                     ListBuffer<JCTree> bridges) {
         for (Scope.Entry e = i.members().elems; e != null; e = e.sibling)
+            // 对父类及接口中的每个成员都调用addBridgeIfNeeded()方法进行判断
             addBridgeIfNeeded(pos, e.sym, origin, bridges);
         for (List<Type> l = types.interfaces(i.type); l.nonEmpty(); l = l.tail)
             addBridges(pos, l.head.tsym, origin, bridges);
@@ -396,15 +422,20 @@ public class TransTypes extends TreeTranslator {
      *  @param origin  The class in which the bridges go.
      *  @param bridges The list buffer to which the bridges are added.
      */
+    // 这个方法会先判断是否有必要添加桥方法，
+    // 如果有必要，就会合成桥方法并保存到bridges列表中，
+    // 然后将bridges列表中保存的所有桥方法添加到标记语法树中
     void addBridges(DiagnosticPosition pos, ClassSymbol origin, ListBuffer<JCTree> bridges) {
         Type st = types.supertype(origin.type);
         while (st.tag == CLASS) {
 //          if (isSpecialization(st))
+            // 调用另外一个重载的addBridges()方法处理所有的父类
             addBridges(pos, st.tsym, origin, bridges);
             st = types.supertype(st);
         }
         for (List<Type> l = types.interfaces(origin.type); l.nonEmpty(); l = l.tail)
 //          if (isSpecialization(l.head))
+            // 调用另外一个重载的addBridges()方法处理接口
             addBridges(pos, l.head.tsym, origin, bridges);
     }
 
@@ -846,6 +877,7 @@ public class TransTypes extends TreeTranslator {
 
     private Env<AttrContext> env;
 
+    // 每个类型都会访问translateClass()方法
     void translateClass(ClassSymbol c) {
         Type st = types.supertype(c.type);
 
@@ -870,11 +902,14 @@ public class TransTypes extends TreeTranslator {
                 tree.typarams = List.nil();
                 super.visitClassDef(tree);
                 make.at(tree.pos);
+                // addBridges变量的值在JDK 1.5及之后的版本中都为true，
+                // 因为从JDK 1.5版本开始支持泛型，有泛型就可能需要添加桥方法
                 if (addBridges) {
                     ListBuffer<JCTree> bridges = new ListBuffer<JCTree>();
                     if (false) //see CR: 6996415
                         bridges.appendList(addOverrideBridgesIfNeeded(tree, c));
                     if ((tree.sym.flags() & INTERFACE) == 0)
+                        // 要进行泛型擦除的当前类型如果不是接口，就会调用addBridges()方法
                         addBridges(tree.pos(), tree.sym, bridges);
                     tree.defs = bridges.toList().prependList(tree.defs);
                 }
