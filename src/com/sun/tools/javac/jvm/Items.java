@@ -798,15 +798,20 @@ public class Items {
         /** A chain encomassing all jumps that can be taken
          *  if the condition evaluates to true.
          */
+        // 保存了条件判断表达式结果为真时的跳转
+        // 一般情况下，当条件判断表达式的结果为真时，跳转的目标地址就是下一条要执行的指令的地址，
+        // 因此不需要调用jumpTrue()方法即可创建一个Chain对象来保存回填地址。
         Chain trueJumps;
 
         /** A chain encomassing all jumps that can be taken
          *  if the condition evaluates to false.
          */
+        // 保存了条件判断表达式结果为假时的跳转
         Chain falseJumps;
 
         /** The jump's opcode.
          */
+        // 跳转的指令
         int opcode;
 
         /*
@@ -854,8 +859,10 @@ public class Items {
             return this;
         }
 
+        // 调用jumpTrue()或jumpFalse()方法会创建一个Chain对象并调用Code.mergeChains()方法与现有的trueJumps或falseJumps合并
         Chain jumpTrue() {
-            if (tree == null) return Code.mergeChains(trueJumps, code.branch(opcode));
+            if (tree == null)
+                return Code.mergeChains(trueJumps, code.branch(opcode));
             // we should proceed further in -Xjcov mode only
             int startpc = code.curPc();
             Chain c = Code.mergeChains(trueJumps, code.branch(opcode));
@@ -863,8 +870,10 @@ public class Items {
             return c;
         }
 
+        // 调用jumpTrue()或jumpFalse()方法会创建一个Chain对象并调用Code.mergeChains()方法与现有的trueJumps或falseJumps合并
         Chain jumpFalse() {
-            if (tree == null) return Code.mergeChains(falseJumps, code.branch(Code.negate(opcode)));
+            if (tree == null)
+                return Code.mergeChains(falseJumps, code.branch(Code.negate(opcode)));
             // we should proceed further in -Xjcov mode only
             int startpc = code.curPc();
             Chain c = Code.mergeChains(falseJumps, code.branch(Code.negate(opcode)));
@@ -872,6 +881,9 @@ public class Items {
             return c;
         }
 
+        // negate()方法可以创建一个新的CondItem对象
+        // 不过这个对象的opcode是调用Code类的negate()方法获取的与自身逻辑相反的指令编码
+        // 同时trueJumps与falseJumps变量的值也做了交换。
         CondItem negate() {
             CondItem c = new CondItem(Code.negate(opcode), falseJumps, trueJumps);
             c.tree = tree;

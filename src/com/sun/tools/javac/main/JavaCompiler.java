@@ -715,7 +715,9 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
      */
     JavaFileObject genCode(Env<AttrContext> env, JCClassDecl cdef) throws IOException {
         try {
+            // 调用gen.genClass()方法会初始化Gen类中定义的一些变量，该方法返回true表示初始化成功，
             if (gen.genClass(env, cdef) && (errorCount() == 0))
+                // 然后调用ClassWriter对象writer的writeClass()方法向Class文件写入字节码内容
                 return writer.writeClass(cdef.sym);
         } catch (ClassWriter.PoolOverflow ex) {
             log.error(cdef.pos(), "limit.pool");
@@ -841,6 +843,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
                     enterTrees(stopIfError(CompileState.PARSE, parseFiles(sourceFileObjects))),
                     classnames);
 
+            // 在JavaCompiler类的compile2()方法中调用generate()方法，该方法会根据已有信息生成Class文件
             delegateCompiler.compile2();
             delegateCompiler.close();
             elapsed_msec = delegateCompiler.elapsed_msec;
@@ -857,6 +860,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
      * The phases following annotation processing: attribution,
      * desugar, and finally code generation.
      */
+    // 在JavaCompiler类的compile2()方法中调用generate()方法，该方法会根据已有信息生成Class文件
     private void compile2() {
         try {
             switch (compilePolicy) {
@@ -1475,6 +1479,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
                 if (usePrintSource)
                     file = printSource(env, cdef);
                 else
+                    // 调用genCode()方法处理queue队列中保存的数据
                     file = genCode(env, cdef);
                 if (results != null && file != null)
                     results.add(file);

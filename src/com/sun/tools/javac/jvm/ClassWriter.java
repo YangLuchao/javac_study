@@ -114,10 +114,12 @@ public class ClassWriter extends ClassFile {
 
     /** An output buffer for member info.
      */
+    // 成员信息的输出缓冲区
     ByteBuffer databuf = new ByteBuffer(DATA_BUF_SIZE);
 
     /** An output buffer for the constant pool.
      */
+    // ByteBuffer对象poolbuf中的字节数组elems的大小指定为POOL_BUF_SIZE。
     ByteBuffer poolbuf = new ByteBuffer(POOL_BUF_SIZE);
 
     /** An output buffer for type signatures.
@@ -418,6 +420,7 @@ public class ClassWriter extends ClassFile {
 
     /** Return signature of given type
      */
+    // 获取描述符或签名
     Name typeSig(Type type) {
         Assert.check(sigbuf.length == 0);
         //- System.out.println(" ? " + type);
@@ -433,8 +436,11 @@ public class ClassWriter extends ClassFile {
      */
     public Name xClassName(Type t) {
         if (t.tag == CLASS) {
+            // 当方法参数t为类或接口时，二进制名称的内部形式都是以斜杠“/”作为分割符的，
+            // 因此获取到flatname后直接调用externalize()方法将点号“.”分割替换为斜杠“/”分割即可
             return names.fromUtf(externalize(t.tsym.flatName()));
         } else if (t.tag == ARRAY) {
+            // 当方法参数t为数组时，首先调用types.erasure()方法进行泛型擦除，然后调用typeSig()方法获取数组的描述符
             return typeSig(types.erasure(t));
         } else {
             throw new AssertionError("xClassName");
@@ -464,9 +470,12 @@ public class ClassWriter extends ClassFile {
      *  might grow since some parts of constants still need to be entered.
      */
     void writePool(Pool pool) throws PoolOverflow, StringOverflow {
+        // 常量池中常量数量
         int poolCountIdx = poolbuf.length;
+        // writePool()方法首先调用poolbuf.appendChar()方法追加一个0值，表示不引用任何一个常量池项
         poolbuf.appendChar(0);
         int i = 1;
+        // writePool()方法循环读取pool.pool数组中存储的所有常量池信息，并按照JVMS规定的常量池项的格式存储到poolbuf缓冲中
         while (i < pool.pp) {
             Object value = pool.pool[i];
             Assert.checkNonNull(value);
@@ -476,60 +485,101 @@ public class ClassWriter extends ClassFile {
                 value = ((Pool.Variable)value).v;
 
             if (value instanceof MethodSymbol) {
+                // 当value是MethodSymbol对象时则会写入CONSTANT_Methodref_info或CONSTANT_InterfaceMethodref_info常量池项
                 MethodSymbol m = (MethodSymbol)value;
+                // 当value所表示的方法定义在接口中时写入CONSTANT_InterfaceMethodref_info项，否则写入CONSTANT_Methodref_info项
+                // 10或者11
                 poolbuf.appendByte((m.owner.flags() & INTERFACE) != 0
                           ? CONSTANT_InterfaceMethodref
                           : CONSTANT_Methodref);
+                // 调用appendChar()方法写入声明当前类方法或接口方法描述符CONSTANT_Class_info的索引项
+                // CONSTANT_Methodref：指向声明方法的类描述符CONSTANT_CONSTANT_Class_info的索引项
+                // CONSTANT_InterfaceMethodref：指向声明方法的类描述符ONSTANT_CONSTANT_Class_info的索引项
                 poolbuf.appendChar(pool.put(m.owner));
+                // CONSTANT_Methodref：指向名称及类型描述符CONSTANT_CONSTANT_Class_info的索引项
+                // CONSTANT_InterfaceMethodref：指向名称及类型描述符ONSTANT_CONSTANT_Class_info的索引项
                 poolbuf.appendChar(pool.put(nameType(m)));
             } else if (value instanceof VarSymbol) {
+                // 当value是VarSymbol对象时会写入一个CONSTANT_Fieldref_info常量池项
                 VarSymbol v = (VarSymbol)value;
+                // 调用appendByte()方法写入CONSTANT_Fieldref，CONSTANT_Fieldref是定义在ClassFile类中的常量，值为9；
                 poolbuf.appendByte(CONSTANT_Fieldref);
+                // 调用appendChar()方法写入声明当前字段的类或者接口描述符CONSTANT_Class_info的索引项
+                // 指向声明字段的类或者接口描述符CONSTANT_Class_info的索引项
                 poolbuf.appendChar(pool.put(v.owner));
+                // 调用appendChar()方法写入字段描述符CONSTANT_NameAndType的索引
+                // 不过首先需要调用nameType()方法以获取表示字段描述符CONSTANT_NameAndType的NameAndType对象并保存到常量池中。
+                // 指向字段描述符CONSTANT_NameAndType的索引项
                 poolbuf.appendChar(pool.put(nameType(v)));
             } else if (value instanceof Name) {
+                // values是Name对象时会写入一个CONSTANT_Utf8_info常量池项
+                // 调用appendByte()方法写入CONSTANT_Utf8，CONSTANT_Utf8是定义在ClassFile类中的常量，值为1
                 poolbuf.appendByte(CONSTANT_Utf8);
                 byte[] bs = ((Name)value).toUtf();
+                // 调用appendChar()方法写入使用2个字节表示的字符串长度；
+                // UTF-8编码的字符串占用的字节数
                 poolbuf.appendChar(bs.length);
+                // 调用appendBytes()方法保存具体的字符串信息。
+                // 长度为length的UTF-8编码的字符串
                 poolbuf.appendBytes(bs, 0, bs.length);
                 if (bs.length > Pool.MAX_STRING_LENGTH)
                     throw new StringOverflow(value.toString());
             } else if (value instanceof ClassSymbol) {
+                // 当value是ClassSymbol对象或Type对象时会写入一个CONSTANT_Class_info常量池项
                 ClassSymbol c = (ClassSymbol)value;
                 if (c.owner.kind == TYP) pool.put(c.owner);
+                // 调用appendByte()方法写入CONSTANT_Class，CONSTANT_Class是定义在ClassFile类中的常量，值为7
                 poolbuf.appendByte(CONSTANT_Class);
                 if (c.type.tag == ARRAY) {
+                    // 指向全限定名常量项的索引
                     poolbuf.appendChar(pool.put(typeSig(c.type)));
                 } else {
+                    // 指向全限定名常量项的索引
                     poolbuf.appendChar(pool.put(names.fromUtf(externalize(c.flatname))));
+                    // 如果当前类是成员类，还需要将c.owner的信息存储到常量池中
                     enterInner(c);
                 }
             } else if (value instanceof NameAndType) {
                 NameAndType nt = (NameAndType)value;
+                // 值为12
                 poolbuf.appendByte(CONSTANT_NameandType);
+                // 指向该字段或方法名称常量项的索引
                 poolbuf.appendChar(pool.put(nt.name));
+                // 指向该字段或方法描述符常量项的索引
                 poolbuf.appendChar(pool.put(typeSig(nt.type)));
             } else if (value instanceof Integer) {
+                // 3
                 poolbuf.appendByte(CONSTANT_Integer);
+                // 按照高位在前存储的int值
                 poolbuf.appendInt(((Integer)value).intValue());
             } else if (value instanceof Long) {
+                // 5
                 poolbuf.appendByte(CONSTANT_Long);
+                // 按照高位在前存储的long值
                 poolbuf.appendLong(((Long)value).longValue());
                 i++;
             } else if (value instanceof Float) {
+                // 4
                 poolbuf.appendByte(CONSTANT_Float);
+                // 按照高位在前存储的float值
                 poolbuf.appendFloat(((Float)value).floatValue());
             } else if (value instanceof Double) {
+                // 6
                 poolbuf.appendByte(CONSTANT_Double);
+                // 按照高位在前存储的double值
                 poolbuf.appendDouble(((Double)value).doubleValue());
                 i++;
             } else if (value instanceof String) {
+                // 8
                 poolbuf.appendByte(CONSTANT_String);
+                // 指向字面量字符串的索引
                 poolbuf.appendChar(pool.put(names.fromString((String)value)));
             } else if (value instanceof Type) {
+                // 当value为Type对象时，
                 Type type = (Type)value;
                 if (type.tag == CLASS) enterInner((ClassSymbol)type.tsym);
                 poolbuf.appendByte(CONSTANT_Class);
+                // 调用xClassName()方法获取类或接口的二进制名称的内部形式并保存到常量池，将常量池索引存储到poolbuf中
                 poolbuf.appendChar(pool.put(xClassName(type)));
             } else {
                 Assert.error("writePool " + value);
@@ -538,6 +588,8 @@ public class ClassWriter extends ClassFile {
         }
         if (pool.pp > Pool.MAX_ENTRIES)
             throw new PoolOverflow();
+        // 将pool.pp写入ByteBuffer对象的elems数组中，具体就是写入到下标为poolCountIdx与poolCountIdx+1的位置，poolCountIdx的值是8，
+        // 要在Class文件的第8个和第9个字节中写入常量池项的数量，而pool.pp保存了常量池项的数量
         putChar(poolbuf, poolCountIdx, pool.pp);
     }
 
@@ -554,14 +606,12 @@ public class ClassWriter extends ClassFile {
     /** Given a symbol, return its name-and-type.
      */
     NameAndType nameType(Symbol sym) {
+        // 调用fieldName()方法获取符号名称，对于VarSymbol对象来说，直接取name的值即可，
+        // 调用sym.externalType()方法获取符号对应的类型，然后创建一个NameAndType对象并返回。
         return new NameAndType(fieldName(sym),
                                retrofit
                                ? sym.erasure(types)
                                : sym.externalType(types));
-        // if we retrofit, then the NameAndType has been read in as is
-        // and no change is necessary. If we compile normally, the
-        // NameAndType is generated from a symbol reference, and the
-        // adjustment of adding an additional this$n parameter needs to be made.
     }
 
 /******************************************************************
@@ -1438,6 +1488,8 @@ public class ClassWriter extends ClassFile {
     public JavaFileObject writeClass(ClassSymbol c)
         throws IOException, PoolOverflow, StringOverflow
     {
+        // 调用JavacFileManager对象fileManager的getJavaFileForOutput()方法以获取字节码输出文件outFile
+        // 文件的名称通过调用c.flatname.toString()方法获取，文件的路径通过CLASS_OUTPUT指定。
         JavaFileObject outFile
             = fileManager.getJavaFileForOutput(CLASS_OUTPUT,
                                                c.flatname.toString(),
@@ -1445,6 +1497,7 @@ public class ClassWriter extends ClassFile {
                                                c.sourcefile);
         OutputStream out = outFile.openOutputStream();
         try {
+            // Javac使用ClassWriter类向Class文件写入字节码内容
             writeClassFile(out, c);
             if (verbose)
                 log.printVerbose("wrote.file", outFile);
@@ -1466,9 +1519,12 @@ public class ClassWriter extends ClassFile {
     public void writeClassFile(OutputStream out, ClassSymbol c)
         throws IOException, PoolOverflow, StringOverflow {
         Assert.check((c.flags() & COMPOUND) == 0);
+        // 成员信息的输出缓冲区清空
         databuf.reset();
+        // 调用ByteBuffer对象poolbuf的reset()方法将ByteBuffer对象中的length变量的值设置为0
         poolbuf.reset();
         sigbuf.reset();
+        // 当前类符号的常量池
         pool = c.pool;
         innerClasses = null;
         innerClassesQueue = null;
@@ -1477,22 +1533,36 @@ public class ClassWriter extends ClassFile {
         List<Type> interfaces = types.interfaces(c.type);
         List<Type> typarams = c.type.getTypeArguments();
 
+        // 调用adjustFlags()方法调整ClassSymbol对象c的flags_field变量的值
         int flags = adjustFlags(c.flags());
-        if ((flags & PROTECTED) != 0) flags |= PUBLIC;
+        // 如果flags中含有PROTECTED时就更改为PUBLIC，因为类在写入时没有PROTECTED
+        if ((flags & PROTECTED) != 0)
+            flags |= PUBLIC;
+        // flags与ClassFlags做与操作，主要保证flags中所有取自Flags类中的修饰符对于类来说都是合法修饰符，
+        // 去掉STRICTFP，因为类在写入时，没有这个修饰符。
         flags = flags & ClassFlags & ~STRICTFP;
-        if ((flags & INTERFACE) == 0) flags |= ACC_SUPER;
-        if (c.isInner() && c.name.isEmpty()) flags &= ~FINAL;
+        // 当前处理的是类，就添加ACC_SUPER
+        if ((flags & INTERFACE) == 0)
+            flags |= ACC_SUPER;
+        if (c.isInner() && c.name.isEmpty())
+            // 如果c是匿名内部类，则去掉FINAL
+            flags &= ~FINAL;
         if (dumpClassModifiers) {
             log.errWriter.println();
             log.errWriter.println("CLASSFILE  " + c.getQualifiedName());
             log.errWriter.println("---" + flagNames(flags));
         }
+        // 调用databuf.appendChar()方法将flags追加到databuf缓冲中
         databuf.appendChar(flags);
 
+        // 当前类符号放入常量池并将在常量池中的索引追加到databuf中
         databuf.appendChar(pool.put(c));
+        // 如果当前类没有父类，如Object类没有父类时保存0值，而0指向常量池中第0项，表示不引用任何常量池项
         databuf.appendChar(supertype.tag == CLASS ? pool.put(supertype.tsym) : 0);
+        // 接口数量
         databuf.appendChar(interfaces.length());
         for (List<Type> l = interfaces; l.nonEmpty(); l = l.tail)
+            // 循环追加接口在常量池中的索引
             databuf.appendChar(pool.put(l.head.tsym));
         int fieldsCount = 0;
         int methodsCount = 0;
@@ -1559,10 +1629,19 @@ public class ClassWriter extends ClassFile {
         acount += writeJavaAnnotations(c.getAnnotationMirrors());
         acount += writeEnclosingMethodAttribute(c);
 
+        // 魔数与版本号
+        // 所有的Class文件开始的4个字节被称为魔数，其值是0xCAFFBABY，主要是起标识作用。
+        // 如果文件开始的4字节不为0xCAFFBABY，则Java虚拟机将会认为该文件不是Class文件而拒绝解析。
+        // 紧跟魔数之后是Class文件的次版本号和主版本号，其中，第5和第6个字节表示次版本号，第7和第8个字节表示主版本号
+        // 调用appendInt()方法写入4个字节表示的魔数,传递的参数JAVA_MAGIC是ClassFile类中定义的一个常量，值就是0xCAFEBABE。
         poolbuf.appendInt(JAVA_MAGIC);
+        // 次版本号
         poolbuf.appendChar(target.minorVersion);
+        // 主版本号
         poolbuf.appendChar(target.majorVersion);
-
+        // 在为方法生成字节码指令的过程中，会将所有需要存储的常量池信息保存到ClassSymbol对象的pool变量中
+        // 在writeClassFile()方法中只需要调用writePool()方法将pool中存储的常量池信息按要求的格式写入poolbuf中即可
+        // 常量池写入
         writePool(c.pool);
 
         if (innerClasses != null) {
@@ -1579,6 +1658,9 @@ public class ClassWriter extends ClassFile {
 
     int adjustFlags(final long flags) {
         int result = (int)flags;
+        // 由于SYNTHETIC、ENUM和ANNOTATION是Class文件版本号为49.0时才添加上去的，
+        // 因而当flags中含有这些标志并且当前的版本号小于JDK 1.5（JDK 1.5版本对应的Class文件版本号就是49.0）时要去掉这些标志。
+        // 如果当前的版本号小于JDK 1.5，则调用target的useSyntheticFlag()、useEnumFlag()与useAnnotationFlag()方法会返回false
         if ((flags & SYNTHETIC) != 0  && !target.useSyntheticFlag())
             result &= ~SYNTHETIC;
         if ((flags & ENUM) != 0  && !target.useEnumFlag())

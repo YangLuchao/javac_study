@@ -385,6 +385,9 @@ public class Gen extends JCTree.Visitor {
      */
     void genFinalizer(Env<GenContext> env) {
         if (code.isAlive() && env.info.finalize != null)
+            // 调用env.info.finalize的gen()方法其实就是调用在visitTry()方法中创建的GenFinalizer匿名类中覆写的方法
+            // 覆写的gen()方法可以记录冗余指令的起始位置及生成冗余指令
+            // 需要注意的是，当code.isAlive()方法返回true时才会做这个操作，也就是代码可达，如果try语句的body体中最后是return语句，则调用code.isAlive()方法将返回false，需要执行其他的逻辑生成冗余指令。
             env.info.finalize.gen();
     }
 
@@ -409,6 +412,8 @@ public class Gen extends JCTree.Visitor {
      *               (if it does, env.info.gaps != null).
      */
     void endFinalizerGap(Env<GenContext> env) {
+        // 当env.info.gaps列表不为空并且列表中元素的数量为奇数时，才会向列表末尾追加冗余指令的结束位置，
+        // 判断列表中元素的数量为奇数主要是为了保证记录起始位置，这样才会记录结束位置。
         if (env.info.gaps != null && env.info.gaps.length() % 2 == 1)
             env.info.gaps.append(code.curPc());
     }
@@ -711,7 +716,6 @@ public class Gen extends JCTree.Visitor {
      *  should be emitted, if so, put a new entry into CRTable
      *  and call method to generate bytecode.
      *  If not, just call method to generate bytecode.
-     *  @see    #genStat(Tree, Env)
      *
      *  @param  tree     The tree to be visited.
      *  @param  env      The environment to use.
@@ -781,7 +785,6 @@ public class Gen extends JCTree.Visitor {
      *  should be emitted, if so, put a new entry into CRTable
      *  and call method to generate bytecode.
      *  If not, just call method to generate bytecode.
-     *  @see    #genCond(Tree,boolean)
      *
      *  @param  tree     The tree to be visited.
      *  @param  crtFlags The CharacterRangeTable flags
@@ -806,24 +809,29 @@ public class Gen extends JCTree.Visitor {
     public CondItem genCond(JCTree _tree, boolean markBranches) {
         JCTree inner_tree = TreeInfo.skipParens(_tree);
         if (inner_tree.getTag() == JCTree.CONDEXPR) {
+            // 对三元表达式处理
             JCConditional tree = (JCConditional)inner_tree;
             CondItem cond = genCond(tree.cond, CRT_FLOW_CONTROLLER);
             if (cond.isTrue()) {
+                // 为true时回填cond.trueJumps分支的地址
                 code.resolve(cond.trueJumps);
                 CondItem result = genCond(tree.truepart, CRT_FLOW_TARGET);
                 if (markBranches) result.tree = tree.truepart;
                 return result;
             }
             if (cond.isFalse()) {
+                // 为false时回填cond.falseJumps分支的地址
                 code.resolve(cond.falseJumps);
                 CondItem result = genCond(tree.falsepart, CRT_FLOW_TARGET);
                 if (markBranches) result.tree = tree.falsepart;
                 return result;
             }
+            // 当tree.cond表达式结果不为编译时常量时，其处理逻辑相对复杂，因为涉及3个布尔类型的表达式共6个分支的跳转
             Chain secondJumps = cond.jumpFalse();
             code.resolve(cond.trueJumps);
             CondItem first = genCond(tree.truepart, CRT_FLOW_TARGET);
-            if (markBranches) first.tree = tree.truepart;
+            if (markBranches)
+                first.tree = tree.truepart;
             Chain falseJumps = first.jumpFalse();
             code.resolve(first.trueJumps);
             Chain trueJumps = code.branch(goto_);
@@ -832,9 +840,14 @@ public class Gen extends JCTree.Visitor {
             CondItem result = items.makeCondItem(second.opcode,
                                       Code.mergeChains(trueJumps, second.trueJumps),
                                       Code.mergeChains(falseJumps, second.falseJumps));
-            if (markBranches) result.tree = tree.falsepart;
+            if (markBranches)
+                result.tree = tree.falsepart;
             return result;
         } else {
+            // 一元或二元表达式
+            // 作为条件判断表达式的一元表达式中含有一元运算符非“!”
+            // 二元表达式含有二元运算符或“||”或与“&&”时，可调用genExpr()方法得到CondItem对象
+            // 调用这个对象的mkCond()方法返回自身
             CondItem result = genExpr(_tree, syms.booleanType).mkCond();
             if (markBranches) result.tree = _tree;
             return result;
@@ -1086,27 +1099,43 @@ public class Gen extends JCTree.Visitor {
          *                    each iteration.
          *  @param testFirst  True if the loop test belongs before the body.
          */
+        // 生成循环代码
         private void genLoop(JCStatement loop,
                              JCStatement body,
                              JCExpression cond,
                              List<JCExpressionStatement> step,
+                             // 在处理循环语句for与while时，testFirst参数的值为true，表示先进行条件判断后执行body体语句
+                             // 在处理循环语句do-while时，testFirst参数的值为false，表示先执行body体语句后进行条件判断。
                              boolean testFirst) {
             Env<GenContext> loopEnv = env.dup(loop, new GenContext());
+            // 调用code.entryPoint()方法获取循环语句生成的第一个字节码指令的地址，
             int startpc = code.entryPoint();
             if (testFirst) {
                 CondItem c;
                 if (cond != null) {
+                    // 当cond不为null时可调用genCond()方法创建一个CondItem对象c
                     code.statBegin(cond.pos);
                     c = genCond(TreeInfo.skipParens(cond), CRT_FLOW_CONTROLLER);
                 } else {
+                    // 否则生成一个无条件跳转的CondItem对象c。
+                    // 因为for语句中的条件判断表达式可以为空，当为空时相当于条件判断表达式的结果永恒为true，这样会执行body体中的语句。
                     c = items.makeCondItem(goto_);
                 }
+                // 同时调用c.jumpFalse()方法获取条件判断表达式的结果为false时的跳转分支
                 Chain loopDone = c.jumpFalse();
+                // 调用code.resolve()方法处理c.trueJumps
                 code.resolve(c.trueJumps);
+                // 生成body的字节码指令
                 genStat(body, loopEnv, CRT_STATEMENT | CRT_FLOW_TARGET);
+                // 回填loopEnv.info.cont变量保存的Chain对象的地址,
+                // 对于for语句来说，遇到跳转目标为当前for语句的continue语句，跳转目标肯定是step对应生成的第一条字节码指令地址
                 code.resolve(loopEnv.info.cont);
+                // 生成step的字节码指令
                 genStats(step, loopEnv);
+                // 调用genStat()方法生成step的字节码指令之后，可调用code.branch()方法生成一个无条件跳转分支
+                // 跳转目标就是循环语句开始处，也就是startpc保存的位置，这样就可以多次执行循环语句生成的相关字节码指令了
                 code.resolve(code.branch(goto_), startpc);
+                // 调用code.resolve()方法处理loopDone，当生成完循环语句的字节码指令后，下一个指令生成时就会回填loopDone的跳转地址
                 code.resolve(loopDone);
             } else {
                 genStat(body, loopEnv, CRT_STATEMENT | CRT_FLOW_TARGET);
@@ -1122,6 +1151,7 @@ public class Gen extends JCTree.Visitor {
                 code.resolve(c.jumpTrue(), startpc);
                 code.resolve(c.falseJumps);
             }
+            // 任何循环语句，最后都要处理loopEnv.info.exit，这个地址一般与loopDone的跳转地址相同，因此两个Chain对象会合并为一个对象并赋值给pendingJumps。
             code.resolve(loopEnv.info.exit);
         }
 
@@ -1135,20 +1165,25 @@ public class Gen extends JCTree.Visitor {
         code.resolve(localEnv.info.exit);
     }
 
+    // 访问Switch节点
     public void visitSwitch(JCSwitch tree) {
         int limit = code.nextreg;
         Assert.check(tree.selector.type.tag != CLASS);
         int startpcCrt = genCrt ? code.curPc() : 0;
+        // 在解语法糖阶段已经将tree.selector表达式的类型都转换为了int类型，
+        // 因此在调用genExpr()方法处理tree.selector时，给出了期望的类型为syms.intType。
         Item sel = genExpr(tree.selector, syms.intType);
         List<JCCase> cases = tree.cases;
         if (cases.isEmpty()) {
             // We are seeing:  switch <sel> {}
+            // 当cases分支为空时处理非常简单，可直接调用sel.load()方法加载Item对象sel，
+            // 因为没有分支使用，所以调用drop()方法抛弃
             sel.load().drop();
             if (genCrt)
                 code.crt.put(TreeInfo.skipParens(tree.selector),
                              CRT_FLOW_CONTROLLER, startpcCrt, code.curPc());
         } else {
-            // We are seeing a nonempty switch.
+            // 当switch语句中有分支时，首先要进行指令选择，也就是要选择lookupswitch指令还是tableswitch指令
             sel.load();
             if (genCrt)
                 code.crt.put(TreeInfo.skipParens(tree.selector),
@@ -1158,20 +1193,26 @@ public class Gen extends JCTree.Visitor {
 
             // Compute number of labels and minimum and maximum label values.
             // For each case, store its label in an array.
-            int lo = Integer.MAX_VALUE;  // minimum label.
-            int hi = Integer.MIN_VALUE;  // maximum label.
-            int nlabels = 0;               // number of labels.
+            int lo = Integer.MAX_VALUE;  // 保存label的最小值
+            int hi = Integer.MIN_VALUE;  // 保存label的最大值
+            int nlabels = 0;             // 保存在label的数量
 
-            int[] labels = new int[cases.length()];  // the label array.
-            int defaultIndex = -1;     // the index of the default clause.
+            // labels就是case个数
+            int[] labels = new int[cases.length()];
+            int defaultIndex = -1;
 
+            // 更新lo、hi、nlabels与defaultIndex变量的值
             List<JCCase> l = cases;
             for (int i = 0; i < labels.length; i++) {
                 if (l.head.pat != null) {
                     int val = ((Number)l.head.pat.type.constValue()).intValue();
                     labels[i] = val;
-                    if (val < lo) lo = val;
-                    if (hi < val) hi = val;
+                    if (val < lo)
+                        // 计算出所有label中的最小值并保存到lo中
+                        lo = val;
+                    if (hi < val)
+                        // 计算出所有label中的最大值并保存到hi中
+                        hi = val;
                     nlabels++;
                 } else {
                     Assert.check(defaultIndex == -1);
@@ -1180,8 +1221,9 @@ public class Gen extends JCTree.Visitor {
                 l = l.tail;
             }
 
-            // Determine whether to issue a tableswitch or a lookupswitch
-            // instruction.
+            // 通过粗略计算使用lookupswitch指令与tableswitch指令的时间与空间消耗来选择指令
+            // 在hi和lo的差值不大且label数偏多的情况下，会选择tableswitch指令；
+            // 当差值很大而label数不多的情况下，会选择lookupswitch指令。
             long table_space_cost = 4 + ((long) hi - lo + 1); // words
             long table_time_cost = 3; // comparisons
             long lookup_space_cost = 3 + 2 * (long) nlabels;
@@ -1196,27 +1238,40 @@ public class Gen extends JCTree.Visitor {
             int startpc = code.curPc();    // the position of the selector operation
             code.emitop0(opcode);
             code.align(4);
-            int tableBase = code.curPc();  // the start of the jump table
-            int[] offsets = null;          // a table of offsets for a lookupswitch
+            int tableBase = code.curPc();  // 保存跳转表开始的位置
+            // 在生成lookupswitch指令时，保存对应分支到跳转的目标地址的偏移量
+            int[] offsets = null;
+            // 为默认的跳转地址预留空间
             code.emit4(-1);                // leave space for default offset
             if (opcode == tableswitch) {
+                // 使用tableswitch指令
+                // 例17-3
                 code.emit4(lo);            // minimum label
                 code.emit4(hi);            // maximum label
                 for (long i = lo; i <= hi; i++) {  // leave space for jump table
+                    // 为跳转表预留空间
+                    // 对于tableswitch指令来说，为lo到hi之间的所有整数都执行了code.emit4()方法，也就是这之间的任何整数都有一个跳转地址
                     code.emit4(-1);
                 }
             } else {
+                // 使用lookupswitch指令
+                // 首先输入分支数量nlabels
                 code.emit4(nlabels);    // number of labels
                 for (int i = 0; i < nlabels; i++) {
+                    // 接下来就是预留nlabels组匹配坐标
                     code.emit4(-1); code.emit4(-1); // leave space for lookup table
                 }
+                // 最后还初始化了一个offsets数组，这个数组会保存对应分支到跳转的目标地址的偏移量，以便后续进行地址回填。
                 offsets = new int[labels.length];
             }
             Code.State stateSwitch = code.state.dup();
+
+            // visitSwitch()方法中关于地址回填的实现
             code.markDead();
 
             // For each case do:
             l = cases;
+            // 循环各个case分支并生成字节码指令，同时回填部分跳转地址
             for (int i = 0; i < labels.length; i++) {
                 JCCase c = l.head;
                 l = l.tail;
@@ -1236,35 +1291,40 @@ public class Gen extends JCTree.Visitor {
                     code.put4(tableBase, pc - startpc);
                 }
 
-                // Generate code for the statements in this case.
+                // 生成case分支所含的语句的字节码指定
                 genStats(c.stats, switchEnv, CRT_FLOW_TARGET);
             }
 
-            // Resolve all breaks.
+            // 处理所有的break语句
             code.resolve(switchEnv.info.exit);
 
-            // If we have not set the default offset, we do so now.
+            // 如果还没有设置默认分支的偏移地址时，设置默认分支的偏移地址
             if (code.get4(tableBase) == -1) {
                 code.put4(tableBase, code.entryPoint(stateSwitch) - startpc);
             }
 
+            // 继续进行地址回填
             if (opcode == tableswitch) {
-                // Let any unfilled slots point to the default case.
+                // 对tableswitch指令进行地址回填
                 int defaultOffset = code.get4(tableBase);
                 for (long i = lo; i <= hi; i++) {
                     int t = (int)(tableBase + 4 * (i - lo + 3));
                     if (code.get4(t) == -1)
+                        // 对没有填充的虚拟case分支设置跳转地址，这个地址就是默认分支的跳转地址
                         code.put4(t, defaultOffset);
                 }
             } else {
-                // Sort non-default offsets and copy into lookup table.
+                // 对lookupswitch指令进行地址回填
                 if (defaultIndex >= 0)
                     for (int i = defaultIndex; i < labels.length - 1; i++) {
                         labels[i] = labels[i+1];
+                        // 在循环生成各个分支所含语句的字节码指令时，将地址偏移量暂时保存到offsets数组中
                         offsets[i] = offsets[i+1];
                     }
                 if (nlabels > 0)
+                    // loopupswitch中会对所有case分支生成的匹配坐标按照分支中的数值进行排序，以方便使用二分查找来加快查找对应case分支的效率
                     qsort2(labels, offsets, 0, nlabels - 1);
+                // 随后根据offsets数组中保存的对应关系进行地址回填
                 for (int i = 0; i < nlabels; i++) {
                     int caseidx = tableBase + 8 * (i + 1);
                     code.put4(caseidx, labels[i]);
@@ -1277,6 +1337,7 @@ public class Gen extends JCTree.Visitor {
 //where
         /** Sort (int) arrays of keys and values
          */
+        // 二分法查找
        static void qsort2(int[] keys, int[] values, int lo, int hi) {
             int i = lo;
             int j = hi;
@@ -1332,9 +1393,9 @@ public class Gen extends JCTree.Visitor {
         code.endScopes(limit);
     }
 
+    // 访问try节点
     public void visitTry(final JCTry tree) {
-        // Generate code for a try statement with given body and catch clauses,
-        // in a new environment which calls the finally block if there is one.
+        // 首先调用env.dup()方法来获取Env对象tryEnv，Env对象中的info变量保存的是GenContext对象，这个对象可以辅助生成try语句的字节码指令。
         final Env<GenContext> tryEnv = env.dup(tree, new GenContext());
         final Env<GenContext> oldEnv = env;
         if (!useJsrLocally) {
@@ -1372,6 +1433,7 @@ public class Gen extends JCTree.Visitor {
             }
         };
         tryEnv.info.gaps = new ListBuffer<Integer>();
+        // 初始化了tryEnv.info.finalizer后就可以调用genTry()方法生成try语句的字节码指令了
         genTry(tree.body, tree.catchers, tryEnv);
     }
     //where
@@ -1382,56 +1444,69 @@ public class Gen extends JCTree.Visitor {
          */
         void genTry(JCTree body, List<JCCatch> catchers, Env<GenContext> env) {
             int limit = code.nextreg;
+            // startpc与endpc记录了try语句body体生成的字节码指令的范围,对于实例17-5来说，这两个值分别为0和4
             int startpc = code.curPc();
             Code.State stateTry = code.state.dup();
             genStat(body, env, CRT_BLOCK);
+            // startpc与endpc记录了try语句body体生成的字节码指令的范围,对于实例17-5来说，这两个值分别为0和4
+            // 调用env.info.gaps的toList()方法初始化gaps，由于toList()方法会重新创建一个列表，因此如果往gaps中追加值时不会影响env.inof.gaps列表中的值。
+            // 在实例17-5中，gaps与env.info.gaps值都为空。
             int endpc = code.curPc();
             boolean hasFinalizer =
                 env.info.finalize != null &&
                 env.info.finalize.hasFinalizer();
+            // 在genTry()方法中为try语句body体生成的字节码指令生成冗余的字节码指令
             List<Integer> gaps = env.info.gaps.toList();
             code.statBegin(TreeInfo.endPos(body));
+            // 调用genFinalizer()方法记录冗余指令的起始位置
             genFinalizer(env);
             code.statBegin(TreeInfo.endPos(env.tree));
             Chain exitChain = code.branch(goto_);
+            // 调用endFinalizerGap()方法生成冗余指令并记录冗余指令的结束位置
             endFinalizerGap(env);
-            if (startpc != endpc) for (List<JCCatch> l = catchers; l.nonEmpty(); l = l.tail) {
-                // start off with exception on stack
-                code.entryPoint(stateTry, l.head.param.sym.type);
-                genCatch(l.head, env, startpc, endpc, gaps);
-                genFinalizer(env);
-                if (hasFinalizer || l.tail.nonEmpty()) {
-                    code.statBegin(TreeInfo.endPos(env.tree));
-                    exitChain = Code.mergeChains(exitChain,
-                                                 code.branch(goto_));
+            // 现在生成了try语句body体的字节码指令并且也记录了冗余指令的起始与结束位置，下面生成各个catch语句的字节码指令
+            if (startpc != endpc) {
+                // genTry()方法首先判断startpc不等于endpc，这样可以保证try语句body体有字节码指令生成，
+                // 因为有执行的字节码指令才可能抛出异常进入catch语句。
+                for (List<JCCatch> l = catchers; l.nonEmpty(); l = l.tail) {
+                    // 循环遍历catch语句，调用code.entryPoint()方法向操作数栈压入抛出的异常类型，这也是模拟Java虚拟机运行时的情况
+                    // 当try语句的body体中抛出异常时，Java虚拟机会将对应的异常压入栈顶
+                    code.entryPoint(stateTry, l.head.param.sym.type);
+                    // 调用genCatch()方法生成catch语句的body体的字节码指令。
+                    genCatch(l.head, env, startpc, endpc, gaps);
+                    genFinalizer(env);
+                    if (hasFinalizer || l.tail.nonEmpty()) {
+                        // 有finally语句或有后续catch语句的话，那么生成的字节码指令要无条件跳转到目标位置，
+                        // 也就是当前try语句之后的第一条指令位置，这个地址要回填，因此使用exitChain链接起来
+                        code.statBegin(TreeInfo.endPos(env.tree));
+                        exitChain = Code.mergeChains(exitChain,
+                                code.branch(goto_));
+                    }
+                    endFinalizerGap(env);
                 }
-                endFinalizerGap(env);
             }
             if (hasFinalizer) {
-                // Create a new register segement to avoid allocating
-                // the same variables in finalizers and other statements.
+                // 将nextreg的值设置为max_locals来避免冲突
                 code.newRegSegment();
-
-                // Add a catch-all clause.
-
-                // start off with exception on stack
+                // 当try语句的body体发生异常时，将异常压入操作数栈顶，调用code.entryPoint()方法压入异常类型后获取到catchallpc
                 int catchallpc = code.entryPoint(stateTry, syms.throwableType);
 
-                // Register all exception ranges for catch all clause.
-                // The range of the catch all clause is from the beginning
-                // of the try or synchronized block until the present
-                // code pointer excluding all gaps in the current
-                // environment's GenContext.
                 int startseg = startpc;
+                // 为try语句body体中抛出而各个catch语句无法捕获的异常加上执行catch语句时可能抛出的异常
+                // 生成异常记录
+                // 抛出异常，而这里异常最终都会存储到栈顶，等待finally进行重抛
                 while (env.info.gaps.nonEmpty()) {
                     int endseg = env.info.gaps.next().intValue();
+                    // 然后向异常表中继续插入try语句的body体中抛出的而各个catch语句无法捕获的异常加上执行catch语句时可能抛出的异常
+                    //（这些异常不一定要使用throw关键字显式进行抛出）
                     registerCatch(body.pos(), startseg, endseg,
                                   catchallpc, 0);
                     startseg = env.info.gaps.next().intValue();
                 }
                 code.statBegin(TreeInfo.finalizerPos(env.tree));
                 code.markStatBegin();
-
+                // 将try语句body体或catch语句抛出的异常保存到本地变量表中，在生成完finally语句的字节码指令后
+                // 将异常加载到操作数栈顶并使用athrow指令抛出
                 Item excVar = makeTemp(syms.throwableType);
                 excVar.store();
                 genFinalizer(env);
@@ -1464,7 +1539,8 @@ public class Gen extends JCTree.Visitor {
                 }
             }
 
-            // Resolve all breaks.
+            // 最后通过调用code.resolve()方法将需要回填的exitChain赋值给pendingJumps，
+            // 这样在try语句后的第一条指令输入时，为break等语句对应的字节码指令进行地址回填。
             code.resolve(exitChain);
 
             code.endScopes(limit);
@@ -1480,6 +1556,7 @@ public class Gen extends JCTree.Visitor {
                       Env<GenContext> env,
                       int startpc, int endpc,
                       List<Integer> gaps) {
+            // 判断startpc不等于endpc,保证try语句body体有字节码指令生成
             if (startpc != endpc) {
                 List<JCExpression> subClauses = TreeInfo.isMultiCatch(tree) ?
                         ((JCTypeUnion)tree.param.vartype).alternatives :
@@ -1488,6 +1565,8 @@ public class Gen extends JCTree.Visitor {
                     for (JCExpression subCatch : subClauses) {
                         int catchType = makeRef(tree.pos(), subCatch.type);
                         int end = gaps.head.intValue();
+                        // 调用registerCatch()方法向异常表中添加异常处理记录
+                        // 如果catch语句中声明了N个异常捕获类型，则循环向异常表中添加N条异常处理记录
                         registerCatch(tree.pos(),
                                       startpc,  end, code.curPc(),
                                       catchType);
@@ -1496,6 +1575,7 @@ public class Gen extends JCTree.Visitor {
                     startpc = gaps.head.intValue();
                     gaps = gaps.tail;
                 }
+                // 如果try语句的body体有字节码指令生成，则向异常表插入异常记录
                 if (startpc < endpc) {
                     for (JCExpression subCatch : subClauses) {
                         int catchType = makeRef(tree.pos(), subCatch.type);
@@ -1509,6 +1589,7 @@ public class Gen extends JCTree.Visitor {
                 code.markStatBegin();
                 int limit = code.nextreg;
                 int exlocal = code.newLocal(exparam);
+                // 如果try语句的body体中抛出异常，则异常会被压入栈顶，将异常存储到本地变量表中
                 items.makeLocalItem(exparam).store();
                 code.statBegin(TreeInfo.firstStatPos(tree.body));
                 genStat(tree.body, env, CRT_BLOCK);
@@ -1526,9 +1607,11 @@ public class Gen extends JCTree.Visitor {
                 char startpc1 = (char)startpc;
                 char endpc1 = (char)endpc;
                 char handler_pc1 = (char)handler_pc;
+                // 将startpc、endpc与handler_pc进行强制类型转换转为char类型后，通过恒等式“==”来判断它们是否与强制类型转换之前的值相等。
                 if (startpc1 == startpc &&
                     endpc1 == endpc &&
                     handler_pc1 == handler_pc) {
+                    // 向catchInfo列表中追加一个相关记录信息的字符数组
                     code.addCatch(startpc1, endpc1, handler_pc1,
                                   (char)catch_type);
                 } else {
@@ -1630,23 +1713,38 @@ public class Gen extends JCTree.Visitor {
         return scanner.complexity;
     }
 
+    // 访问if节点
     public void visitIf(JCIf tree) {
+        // 通过局部变量limit保存了code.nextreg的值
         int limit = code.nextreg;
         Chain thenExit = null;
+        // 调用genCond()方法获取到CondItem对象
         CondItem c = genCond(TreeInfo.skipParens(tree.cond),
                              CRT_FLOW_CONTROLLER);
+        // 调用jumpFalse()方法，表示当条件判断表达式的值为false时需要进行地址回填
         Chain elseChain = c.jumpFalse();
+        // 要分析的if语句的条件判断表达式的结果不为常量值false
         if (!c.isFalse()) {
+            // 调用code.resolve()方法填写c.trueJumps中所有需要回填的地址
             code.resolve(c.trueJumps);
+            // 当条件判断表达式的值不为常量值false时，可调用genStat()方法生成if语句body体中的字节码指令
             genStat(tree.thenpart, env, CRT_STATEMENT | CRT_FLOW_TARGET);
+            // 调用code.branch()方法创建一个无条件跳转分支thenExit
             thenExit = code.branch(goto_);
         }
+        // 如果有else分支时，则跳转目标为else分支生成的字节码指令后的下一个指令地址
         if (elseChain != null) {
+            // 调用code.resolve()方法回填要跳转到else语句body体中的elseChain
             code.resolve(elseChain);
+            // 这样在生成else语句body体中的第一条字节码指令时就会调用resolve(Chain chain,int target)方法回填地址
             if (tree.elsepart != null)
+                // 当tree.elsepart不为空时，同样调用genStat()方法生成else语句body体中的字节码指令
                 genStat(tree.elsepart, env,CRT_STATEMENT | CRT_FLOW_TARGET);
         }
+        // 这样当if语句块没有else分支时下一条指令就是thenExit的跳转目标
         code.resolve(thenExit);
+        // 执行完成后调用code.endScopes()方法将执行if语句而保存到本地变量表中的数据清除
+        // 因为已经离开了if语句的作用域范围，这些数据是无效的状态。
         code.endScopes(limit);
     }
 
@@ -1709,7 +1807,11 @@ public class Gen extends JCTree.Visitor {
         code.endScopes(limit);
     }
 
+    // 访问异常抛出节点
     public void visitThrow(JCThrow tree) {
+        // 调用genExpr()方法获取Item对象，对于以17-4实例来说，获取到的是表示本地变量e的LocalItem对象，这个对象的reg值为1
+        // 表示变量存储到了本地变量表索引为1的位置，调用这个对象的load()方法生成aload_1指令并将异常类型压入操作数栈顶
+        // 这样就可以调用code.emitop0()方法生成athrow指令并抛出栈顶保存的异常类型了
         genExpr(tree.expr, tree.expr.type).load();
         code.emitop0(athrow);
     }
@@ -1887,7 +1989,9 @@ public class Gen extends JCTree.Visitor {
         OperatorSymbol operator = (OperatorSymbol)tree.operator;
         if (tree.getTag() == JCTree.NOT) {
             // 对非语句单独处理
+            // 调用genCond()方法将得到CondItem对象od
             CondItem od = genCond(tree.arg, false);
+            // 然后调用od.negate()方法进行逻辑取反，这是非运算符语义的体现。
             result = od.negate();
         } else {
             // 例16-9 调用genExpr()方法处理JCArrayAccess(arr[a])树节点，得到IndexedItem(int)对象
@@ -1972,6 +2076,7 @@ public class Gen extends JCTree.Visitor {
     public void visitBinary(JCBinary tree) {
         OperatorSymbol operator = (OperatorSymbol)tree.operator;
         if (operator.opcode == string_add) {
+            // 对字符串的+进行处理
             // Create a string buffer.
             makeStringBuffer(tree.pos());
             // Append all strings to buffer.
@@ -1980,20 +2085,33 @@ public class Gen extends JCTree.Visitor {
             bufferToString(tree.pos());
             result = items.makeStackItem(syms.stringType);
         } else if (tree.getTag() == JCTree.AND) {
+            // 特殊处理&&
+            // 处理二元表达式左侧表达式，得到一个CondItem对象lcond
             CondItem lcond = genCond(tree.lhs, CRT_FLOW_CONTROLLER);
             if (!lcond.isFalse()) {
+                // 如果这个对象代表的条件判断表达式的结果不为编译时的常量false
+                // 当tree.lhs条件判断表达式的结果不为编译时常量的false时获取falseJumps
+                // 也就是当条件判断表达式的结果为false时要跳转的分支时，其跳转的目标应该为二元表达式执行完成后的第一条指令地址
                 Chain falseJumps = lcond.jumpFalse();
+                // 调用code.resolve()方法对lcond.trueJumps进行地址回填
                 code.resolve(lcond.trueJumps);
+                // 这样当调用genCond()方法生成tree.rhs的字节码指令时，第一条指令的地址就是具体的回填地址。
+                // 处理二元表达式右侧表达式
+                // tree.rhs就有可能被执行，也需要调用genCond()方法生成tree.rhs的字节码指令，否则只生成tree.lhs的字节码指令即可。
                 CondItem rcond = genCond(tree.rhs, CRT_FLOW_TARGET);
                 result = items.
                     makeCondItem(rcond.opcode,
                                  rcond.trueJumps,
+                                 // 最后调用Code类的mergeChains()方法将falseJumps与rcond.falseJumps进行合并，
+                                 // 因为“&&”运算符左侧与右侧的表达式为false时跳转的目标地址一样，所以可以连接在一起。
                                  Code.mergeChains(falseJumps,
                                                   rcond.falseJumps));
             } else {
+                // 左侧的表达式的结果一定为true，lcond.trueJumps的跳转地址为右侧表达式生成的第一条指令地址
                 result = lcond;
             }
         } else if (tree.getTag() == JCTree.OR) {
+            // 特殊处理||
             CondItem lcond = genCond(tree.lhs, CRT_FLOW_CONTROLLER);
             if (!lcond.isTrue()) {
                 Chain trueJumps = lcond.jumpTrue();
@@ -2345,12 +2463,16 @@ public class Gen extends JCTree.Visitor {
      */
     abstract class GenFinalizer {
         /** Generate code to clean up when unwinding. */
+        // 调用gen()方法可以记录生成finally语句对应的字节码指令的相关信息
+        // 对于实例17-5来说，当需要生成finally语句对应的冗余的字节码指令时，调用gen()方法会获取当前的变量cp的值并追加到gaps列表中，这个值就是4、17或30
         abstract void gen();
 
         /** Generate code to clean up at last. */
+        // 调用genLast()方法生成冗余的字节码指令。
         abstract void genLast();
 
         /** Does this finalizer have some nontrivial cleanup to perform? */
+        // 调用hasFinalizer()方法判断try语句是否含有finally语句，如果含有finally语句，hasFinalizer()方法将返回true；
         boolean hasFinalizer() { return true; }
     }
 
@@ -2362,16 +2484,20 @@ public class Gen extends JCTree.Visitor {
 
         /** A chain for all unresolved jumps that exit the current environment.
          */
+        // 成员变量exit与cont的类型为Chain，在流程跳转进行地址回填时使用
+        // 每个continue语句都会建立一个Chain对象
         Chain exit = null;
 
         /** A chain for all unresolved jumps that continue in the
          *  current environment.
          */
+        // 成员变量exit与cont的类型为Chain，在流程跳转进行地址回填时使用
         Chain cont = null;
 
         /** A closure that generates the finalizer of the current environment.
          *  Only set for Synchronized and Try contexts.
          */
+        // finalize是GenFinalizer类型的变量
         GenFinalizer finalize = null;
 
         /** Is this a switch statement?  If so, allocate registers
@@ -2382,16 +2508,22 @@ public class Gen extends JCTree.Visitor {
         /** A list buffer containing all gaps in the finalizer range,
          *  where a catch all exception should not apply.
          */
+        // gaps中保存了finally语句生成的冗余指令的范围
+        // 对于实例17-5来说，gaps列表中按顺序保存的值为4、11、17、24、30与37，也就是指令编号在4~11、17~24、30~37之间
+        // （包括起始编号但不包括结束编号）的所有指令都是冗余的字节码指令。
         ListBuffer<Integer> gaps = null;
 
         /** Add given chain to exit chain.
          */
+        // break或者throw、return等语句会调用addExit()方法将多个Chain对象链接起来
+        // 例17-2
         void addExit(Chain c)  {
             exit = Code.mergeChains(c, exit);
         }
 
         /** Add given chain to cont chain.
          */
+        // 多个Chain对象通过调用addCont()方法链接起来
         void addCont(Chain c) {
             cont = Code.mergeChains(c, cont);
         }

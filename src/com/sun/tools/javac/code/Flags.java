@@ -140,6 +140,10 @@ public class Flags {
     // bit positions, we translate them when reading and writing class
     // files into unique bits positions: ACC_SYNTHETIC <-> SYNTHETIC,
     // for example.
+    // 因为以下访问标志被其他位位置重载，我们在读取和写入类文件时将它们转换为唯一位位置：
+    // 例如，ACC_SYNTHETIC <-> SYNTHETIC。
+    // 在Flags类中常量值0x0020表示的是SYNCHRONIZED，而对于类来说，flags_field中含有的应该是ACC_SUPER，
+    // 而ACC_SUPER又不能在Java源代码中显式标注，因此Javac在写入时会给每个类添加ACC_SUPER。
     // 1.0.2之后编译出来的类都需要设置这个标志
     public static final int ACC_SUPER    = 0x0020;
     // 由Javac等编译器生成的桥方法

@@ -354,6 +354,9 @@ public interface ByteCodes {
     // 比较栈顶两double型数值大小, 并将结果(1, 0或-1)压入栈顶;
     // 当其中一个数值为NaN时, 将1压入栈顶
         dcmpg           = 152,
+    // 逻辑相反的一对指令的编码相邻，如ifeq和ifne的编码是153和154，
+    // 并且第一个指令的编码为奇数
+    // 调用negate()方法可以获取与自身逻辑相反的指令编码
     // 当栈顶int型数值等于0时跳转
         ifeq            = 153,
     // 当栈顶int型数值不等于0时跳转
@@ -366,6 +369,7 @@ public interface ByteCodes {
         ifgt            = 157,
     // 当栈顶int型数值小于等于0时跳转
         ifle            = 158,
+    // 比较两个值是，后一个值在栈顶，前一个值在后一个值后面
     // 比较栈顶两int型数值大小, 当结果等于0时跳转
         if_icmpeq       = 159,
     // 比较栈顶两int型数值大小, 当结果不等于0时跳转
@@ -389,8 +393,12 @@ public interface ByteCodes {
     // 返回至本地变量指定的index的指令位置(一般与jsr或jsr_w联合使用)
         ret             = 169,
     // 用于switch条件跳转, case值连续(可变长度指令)
+    // tableswitch指令根据键值在跳转表中寻找配对的分支并跳转
+    // 例17-10
         tableswitch     = 170,
     // 	用于switch条件跳转, case值不连续(可变长度指令)
+    //  lookupswitch指令根据键值在跳转表中寻找配对的分支并跳转
+    //  例17-10
         lookupswitch    = 171,
     // 从当前方法返回int
         ireturn         = 172,

@@ -36,14 +36,20 @@ import java.io.*;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// Class文件中存储了两种数据类型：无符号数和表。
+// 表是用来描述有层次关系的复合结构的数据，而无符号数可以用来标识一个具体结构的类型，或者还可以表示数量及属性长度等
+// ByteBuffer对象表示一个具体的缓冲，主要通过elems来保存缓冲的内容，Javac在向Class文件中写入字节码时不会一个字节一个字节地写，
+// 而是先写入ByteBuffer缓冲中，然后一次性写入Class文件来提高写入的效率。
 public class ByteBuffer {
 
     /** An array holding the bytes in this buffer; can be grown.
      */
+    // 向字节数组elems中写入一个字节的内容
     public byte[] elems;
 
     /** The current number of defined bytes in this buffer.
      */
+    // length保存着数组中写入的字节数量
     public int length;
 
     /** Create a new byte buffer.
@@ -56,6 +62,7 @@ public class ByteBuffer {
      *  of given size.
      */
     public ByteBuffer(int initialSize) {
+        // 在ByteBuffer类的构造方法中初始化elems
         elems = new byte[initialSize];
         length = 0;
     }
@@ -68,8 +75,10 @@ public class ByteBuffer {
 
     /** Append byte to this buffer.
      */
+    // 写入基本类型的常用方法
     public void appendByte(int b) {
-        if (length >= elems.length) copy(elems.length * 2);
+        if (length >= elems.length)
+            copy(elems.length * 2);
         elems[length++] = (byte)b;
     }
 
@@ -77,7 +86,8 @@ public class ByteBuffer {
      *  starting at given `start' offset.
      */
     public void appendBytes(byte[] bs, int start, int len) {
-        while (length + len > elems.length) copy(elems.length * 2);
+        while (length + len > elems.length)
+            copy(elems.length * 2);
         System.arraycopy(bs, start, elems, length, len);
         length += len;
     }
@@ -90,8 +100,11 @@ public class ByteBuffer {
 
     /** Append a character as a two byte number.
      */
+    // 在写入一个占用2个字节的无符号整数时，可按照高位在前的方式写入，
+    // 并且写入的每个字节都要和0xFF做与运算，主要是为了防止符号扩展，严格保持字节存储时的样子。
     public void appendChar(int x) {
-        while (length + 1 >= elems.length) copy(elems.length * 2);
+        while (length + 1 >= elems.length)
+            copy(elems.length * 2);
         elems[length  ] = (byte)((x >>  8) & 0xFF);
         elems[length+1] = (byte)((x      ) & 0xFF);
         length = length + 2;

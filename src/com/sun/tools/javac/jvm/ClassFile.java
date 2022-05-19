@@ -65,6 +65,7 @@ import com.sun.tools.javac.util.Name;
  *  deletion without notice.</b> */
 public class ClassFile {
 
+    // 魔数
     public final static int JAVA_MAGIC = 0xCAFEBABE;
 
     // see Target

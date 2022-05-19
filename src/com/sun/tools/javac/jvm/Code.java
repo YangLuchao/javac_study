@@ -161,7 +161,12 @@ public class Code {
     /** A chain for jumps to be resolved before the next opcode is emitted.
      *  We do this lazily to avoid jumps to jumps.
      */
+    // 跳转链
+    // pendingJumps中保存着要跳转到当前opcode指令的分支
+    // 将pendingJumps初始化为null，当pendingJumps有值时，则保存的所有Chain对象都会在输入下一条指令时进行地址回填
     Chain pendingJumps = null;
+    // 当pendingJumps有值时，在生成下一条指令时就会对pendingJumps中所有的Chain对象进行地址回填，
+    // 因而pendingJumps一旦被赋值，就确定下一个指令的地址就是所有pendingJumps中保存的Chain对象的回填地址。
 
     /** The position of the currently statement, if we are at the
      *  start of this statement, NOPOS otherwise.
@@ -328,8 +333,11 @@ public class Code {
     /** The current output code pointer.
      */
     public int curPc() {
-        if (pendingJumps != null) resolvePending();
-        if (pendingStatPos != Position.NOPOS) markStatBegin();
+        if (pendingJumps != null)
+            // 当pendingJumps不为null时，调用resolvePending()方法回填pendingJumps中所有需要进行地址回填的分支
+            resolvePending();
+        if (pendingStatPos != Position.NOPOS)
+            markStatBegin();
         fixedPc = true;
         return cp;
     }
@@ -389,6 +397,7 @@ public class Code {
     // 调用emitop()方法将对应指令的编码保存到code字节数组中，然后操作栈中的内容
     private void emitop(int op) {
         if (pendingJumps != null)
+            // 有跳转，处理地址回填
             resolvePending();
         if (alive) {
             if (pendingStatPos != Position.NOPOS)
@@ -1212,7 +1221,9 @@ public class Code {
     /** Declare an entry point; return current code pointer
      */
     public int entryPoint() {
+        // 调用了curPc()方法获取当前指令的地址
         int pc = curPc();
+        // 将alive设置为true
         alive = true;
         pendingStackMap = needStackMap;
         return pc;
@@ -1429,25 +1440,36 @@ public class Code {
 
 /**************************************************************************
  * Operations having to do with jumps
+ * 与跳跃有关的操作
  *************************************************************************/
 
     /** A chain represents a list of unresolved jumps. Jump locations
      *  are sorted in decreasing order.
      */
+    // 在进行条件或无条件跳转时需要生成跳转指令，同时要指定跳转地址，但是在某些情况下，
+    // 跳转的目标指令还没有生成，跳转地址是个未知数，因此需要在生成目标指令之前，
+    // 需要通过Chain对象来保存相关的跳转信息，在生成目标指令时回填这些地址
     public static class Chain {
 
         /** The position of the jump instruction.
          */
+        // pc指向需要进行地址回填的指令的位置
+        // 对于实例17-1来说，pc的值为2，当生成目标指令return时，
+        // 会将此指令相应的偏移量8回填到编号为3和4的位置
         public final int pc;
 
         /** The machine state after the jump instruction.
          *  Invariant: all elements of a chain list have the same stacksize
          *  and compatible stack and register contents.
          */
+        // 回填的操作数栈
         Code.State state;
 
         /** The next jump in the list.
          */
+        // next将多个Chain对象连接起来，每个Chain对象都含有一个需要进行回填地址的跳转指令，
+        // 这些跳转指令的跳转目标都一样，因此连接起来的多个Chain对象跳转的目标地址一定是相同的。
+        // 例如，一个循环中如果有两个break语句的目标都是跳出当前循环，那么回填两个break语句生成的指令地址也一定相同。
         public final Chain next;
 
         /** Construct a chain from its jump position, stacksize, previous
@@ -1462,6 +1484,11 @@ public class Code {
 
     /** Negate a branch opcode.
      */
+    // 获取与opcode相反逻辑的指令编码
+    // 之所以要获取与自身逻辑相反的指令，是因为对于流程控制语句来说，在为条件判断表达式选取生成的指令时，
+    // 通常会选择让条件判断表达式的结果为true的指令，而实际上最终生成的是让条件判断表达式的结果为false的指令。
+    // 取反是为了跳出判断，执行后续代码
+    // 例17-1
     public static int negate(int opcode) {
         if (opcode == if_acmp_null) return if_acmp_nonnull;
         else if (opcode == if_acmp_nonnull) return if_acmp_null;
@@ -1471,6 +1498,7 @@ public class Code {
     /** Emit a jump instruction.
      *  Return code pointer of instruction to be patched.
      */
+    // emitJump()方法将opcode存储到生成的字节数组中
     public int emitJump(int opcode) {
         if (fatcode) {
             if (opcode == goto_ || opcode == jsr) {
@@ -1483,7 +1511,9 @@ public class Code {
             }
             return cp - 5;
         } else {
+            // 调用emitop2()方法生成跳转指令，指令的目标地址暂时设置为0
             emitop2(opcode, 0);
+            // emitJump()方法最后返回这个指令的地址，在进行地址回填的时候使用
             return cp - 3;
         }
     }
@@ -1492,11 +1522,17 @@ public class Code {
      *  branch differs from jump in that jsr is treated as no-op.
      */
     public Chain branch(int opcode) {
+        // 方法参数opcode一定是一个控制转移指令
         Chain result = null;
+        // 当要输入的opcode指令为无条件跳转指令时，pendingJumps中保存的Chain对象应该延后进行回填，
+        // 将pendingJumps置为null，这样opcode生成的Chain对象就会和pendingJumps连接在一起，
+        // 跳转到共同的目标，这个共同的目标就是opcode为无条件跳转指令时跳转的目标。
         if (opcode == goto_) {
             result = pendingJumps;
             pendingJumps = null;
         }
+        // 对于branch()方法来说，当opcode不为无条件跳转指令时，
+        // 可以在调用emitJump()方法生成opcode时就会对pendingJumps进行地址回填
         if (opcode != dontgoto && isAlive()) {
             result = new Chain(emitJump(opcode),
                                result,
@@ -1509,28 +1545,32 @@ public class Code {
 
     /** Resolve chain to point to given target.
      */
+    // 调用Code类的resolve()方法进行地址回填
     public void resolve(Chain chain, int target) {
         boolean changed = false;
         State newState = state;
+        // 根据参数chain能够找到所有需要回填地址的分支，这些连接在一起的chain的目标跳转地址都为target，不过有时候需要更新target
         for (; chain != null; chain = chain.next) {
             Assert.check(state != chain.state
                     && (target > chain.pc || state.stacksize == 0));
+            // 更新目标跳转地址target
             if (target >= cp) {
+                // 当target大于等于cp时，由于cp指向下一条指令要存储的位置，因而直接将target的值更新为cp
                 target = cp;
             } else if (get1(target) == goto_) {
-                if (fatcode) target = target + get4(target + 1);
-                else target = target + get2(target + 1);
+                // 当跳转的目标地址target处的指令也是一个无条件跳转指令时，则更新target为这个无条件跳转指令的目标跳转地址。
+                if (fatcode)
+                    target = target + get4(target + 1);
+                else
+                    target = target + get2(target + 1);
             }
             if (get1(chain.pc) == goto_ &&
                 chain.pc + 3 == target && target == cp && !fixedPc) {
-                // If goto the next instruction, the jump is not needed:
-                // compact the code.
+                // 当无条件跳转的目标指令就是下一条指定时，则不需要这条goto指令
                 cp = cp - 3;
                 target = target - 3;
                 if (chain.next == null) {
-                    // This is the only jump to the target. Exit the loop
-                    // without setting new state. The code is reachable
-                    // from the instruction before goto_.
+                    // 跳出当前的循环
                     alive = true;
                     break;
                 }
@@ -1569,25 +1609,32 @@ public class Code {
 
     /** Resolve chain to point to current code pointer.
      */
+    // 地址回填
     public void resolve(Chain chain) {
         Assert.check(
             !alive ||
             chain==null ||
             state.stacksize == chain.state.stacksize &&
             state.nlocks == chain.state.nlocks);
+        // 调用了mergeChains()方法将chain与pendingJumps合并后再次赋值给成员变量pendingJumps。
         pendingJumps = mergeChains(chain, pendingJumps);
     }
 
     /** Resolve any pending jumps.
      */
+    // 处理地址回填
     public void resolvePending() {
         Chain x = pendingJumps;
+        // pendingJumps置为null
         pendingJumps = null;
+        // 处理地址回填
         resolve(x, cp);
     }
 
     /** Merge the jumps in of two chains into one.
      */
+    // 调用Code类的mergeChains()方法进行Chain对象的合并
+    // 多个Chain对象通过next连接起来，不过Chain对象对需要进行回填地址的指令地址pc从大到小进行了排序。
     public static Chain mergeChains(Chain chain1, Chain chain2) {
         // recursive merge sort
         if (chain2 == null) return chain1;
@@ -1615,6 +1662,7 @@ public class Code {
      */
     public void addCatch(
         char startPc, char endPc, char handlerPc, char catchType) {
+        // 向catchInfo列表中追加一个相关记录信息的字符数组
         catchInfo.append(new char[]{startPc, endPc, handlerPc, catchType});
     }
 
