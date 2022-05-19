@@ -37,6 +37,9 @@ import com.sun.tools.classfile.ConstantPool.*;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 内部类列表
+// InnerClasses属性用于记录内部类和宿主类之间的关联
+// Test25inner_class_access_flags标志.png/Test25inner_classes_info属性结构.png/Test25InnerClasses属性结构.png
 public class InnerClasses_attribute extends Attribute {
     InnerClasses_attribute(ClassReader cr, int name_index, int length) throws IOException {
         super(name_index, length);
@@ -94,9 +97,13 @@ public class InnerClasses_attribute extends Attribute {
             return 8;
         }
 
+        // inner_class_info_index是对常量池的一个有效索引，常量池在该索引处为CONSTANT_Class_info项，分别表示内部类的符号引用
         public final int inner_class_info_index;
+        // outer_class_info_index是对常量池的一个有效索引，常量池在该索引处为CONSTANT_Class_info项，分别表示宿主类的符号引用
         public final int outer_class_info_index;
+        // inner_name_index是对常量池的一个有效索引，常量池在该索引处为CONSTANT_Utf8_info项，表示内部类的名称，如果是匿名内部类，这一项的值为0。
         public final int inner_name_index;
+        // 表示内部类的访问标志
         public final AccessFlags inner_class_access_flags;
     }
 }

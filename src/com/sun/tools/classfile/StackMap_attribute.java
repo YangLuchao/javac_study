@@ -33,6 +33,7 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 为Java虚拟机的类型验证提供相关信息
 public class StackMap_attribute extends Attribute {
     StackMap_attribute(ClassReader cr, int name_index, int length)
             throws IOException, StackMapTable_attribute.InvalidStackMap {

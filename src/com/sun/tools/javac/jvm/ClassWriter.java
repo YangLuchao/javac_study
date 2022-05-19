@@ -132,11 +132,13 @@ public class ClassWriter extends ClassFile {
 
     /** The inner classes to be written, as a set.
      */
+    // 内部类Set
     Set<ClassSymbol> innerClasses;
 
     /** The inner classes to be written, as a queue where
      *  enclosing classes come first.
      */
+    // 内部类队列
     ListBuffer<ClassSymbol> innerClassesQueue;
 
     /** The log to use for verbose output.
@@ -298,7 +300,10 @@ public class ClassWriter extends ClassFile {
             sigbuf.appendByte('V');
             break;
         case CLASS:
+            // 剩下的数组与类和接口的实现可能会计算描述符或签名，针对数组的实现很简单，
+            // 主要看类和接口的实现，无论是计算类和接口的描述符还是签名，都是以“L”开头，以“;”结尾，
             sigbuf.appendByte('L');
+            // 中间部分调用assembleClassSig()方法进行计算
             assembleClassSig(type);
             sigbuf.appendByte(';');
             break;
@@ -321,6 +326,8 @@ public class ClassWriter extends ClassFile {
             }
             break;
         case WILDCARD: {
+            //通配符类型和类型变量只会在计算签名时使用，因为在计算描述符时会进行类型擦写，
+            // 所以不会存在通配符类型和类型变量，实现也相对简单，按照相关的文法生成签名字符串即可。
             WildcardType ta = (WildcardType) type;
             switch (ta.kind) {
             case SUPER:
@@ -346,6 +353,7 @@ public class ClassWriter extends ClassFile {
             break;
         case FORALL:
             ForAll ft = (ForAll)type;
+            // 获取方法的签名时，可通过调用assembleParamsSig()方法计算形式类型参数的签名
             assembleParamsSig(ft.tvars);
             assembleSig(ft.qtype);
             break;
@@ -374,10 +382,14 @@ public class ClassWriter extends ClassFile {
         enterInner(c);
         Type outer = ct.getEnclosingType();
         if (outer.allparams().nonEmpty()) {
+            // // 当c为本地类或匿名类时，rawOuter为true
             boolean rawOuter =
                 c.owner.kind == MTH || // either a local class
                 c.name == names.empty; // or anonymous
+            // 当c为本地类或匿名类时，无论是计算描述符还是签名都使用泛型擦除后的封闭类的描述符或签名
             assembleClassSig(rawOuter
+                    // 当封闭类是参数化类型时则需要一些特殊的处理，如果当前类是本地类或匿名类时，需对封闭类进行泛型擦除
+                    // 例18-7
                              ? types.erasure(outer)
                              : outer);
             sigbuf.appendByte('.');
@@ -423,11 +435,10 @@ public class ClassWriter extends ClassFile {
     // 获取描述符或签名
     Name typeSig(Type type) {
         Assert.check(sigbuf.length == 0);
-        //- System.out.println(" ? " + type);
+        // 调用assembleSig()方法计算描述符或签名
         assembleSig(type);
         Name n = sigbuf.toName(names);
         sigbuf.reset();
-        //- System.out.println("   " + n);
         return n;
     }
 
@@ -621,8 +632,11 @@ public class ClassWriter extends ClassFile {
     /** Write header for an attribute to data buffer and return
      *  position past attribute length index.
      */
+    // 写入属性信息
     int writeAttr(Name attrName) {
+        // 写入attribute_name_index及attribute_length
         databuf.appendChar(pool.put(attrName));
+        // attribute_length的值为0，因为目前还不能得出属性值的具体长度，等到写入constantvalue_index后再更新此值
         databuf.appendInt(0);
         return databuf.length;
     }
@@ -637,6 +651,7 @@ public class ClassWriter extends ClassFile {
      *  number of attributes field.
      */
     int beginAttrs() {
+        // 向databuf中追加一个0，主要是为attributes_count属性留出一个空间，因为现在属性的数量还是一个未知数
         databuf.appendChar(0);
         return databuf.length;
     }
@@ -650,20 +665,24 @@ public class ClassWriter extends ClassFile {
     /** Write the EnclosingMethod attribute if needed.
      *  Returns the number of attributes written (0 or 1).
      */
+    // 如果需要，请编写 EnclosureMethod 属性。返回写入的属性数（0 或 1）
     int writeEnclosingMethodAttribute(ClassSymbol c) {
         if (!target.hasEnclosingMethodAttribute() ||
             c.owner.kind != MTH && // neither a local class
             c.name != names.empty) // nor anonymous
             return 0;
-
+        // attribute_name_index/attribute_length
         int alenIdx = writeAttr(names.EnclosingMethod);
         ClassSymbol enclClass = c.owner.enclClass();
+        // 计算局部变量enclMethod时要确保当前类是在某个方法中直接包含，如果不是直接包含，则enclMethod的值将为null
         MethodSymbol enclMethod =
             (c.owner.type == null // local to init block
              || c.owner.kind != MTH) // or member init
             ? null
             : (MethodSymbol)c.owner;
+        // class_index
         databuf.appendChar(pool.put(enclClass));
+        // method_index
         databuf.appendChar(enclMethod == null ? 0 : pool.put(nameType(c.owner)));
         endAttr(alenIdx);
         return 1;
@@ -671,6 +690,7 @@ public class ClassWriter extends ClassFile {
 
     /** Write flag attributes; return number of attributes written.
      */
+    // 写入属性信息
     int writeFlagAttrs(long flags) {
         int acount = 0;
         if ((flags & DEPRECATED) != 0) {
@@ -712,13 +732,15 @@ public class ClassWriter extends ClassFile {
     int writeMemberAttrs(Symbol sym) {
         int acount = writeFlagAttrs(sym.flags());
         long flags = sym.flags();
-        if (source.allowGenerics() &&
-            (flags & (SYNTHETIC|BRIDGE)) != SYNTHETIC &&
-            (flags & ANONCONSTR) == 0 &&
+        if (source.allowGenerics() && // 运行使用泛型
+            (flags & (SYNTHETIC|BRIDGE)) != SYNTHETIC && // 不为桥方法
+            (flags & ANONCONSTR) == 0 && // 不为匿名类构造方法
+            // 含有泛型信息
             (!types.isSameType(sym.type, sym.erasure(types)) ||
              hasTypeVar(sym.type.getThrownTypes()))) {
             // note that a local class with captured variables
             // will get a signature attribute
+            // 写入Signature属性
             int alenIdx = writeAttr(names.Signature);
             databuf.appendChar(pool.put(typeSig(sym.type)));
             endAttr(alenIdx);
@@ -901,6 +923,7 @@ public class ClassWriter extends ClassFile {
 
     /** Enter an inner class into the `innerClasses' set/queue.
      */
+    // 调用enterInner()方法对内部类进行处理
     void enterInner(ClassSymbol c) {
         if (c.type.isCompound()) {
             throw new AssertionError("Unexpected intersection type: " + c.type);
@@ -912,11 +935,12 @@ public class ClassWriter extends ClassFile {
             throw ex;
         }
         if (c.type.tag != CLASS) return; // arrays
-        if (pool != null && // pool might be null if called from xClassName
+        if (pool != null &&
             c.owner.kind != PCK &&
+                // c是内部类并且innerClasses集合中没有包含这个内部类时
             (innerClasses == null || !innerClasses.contains(c))) {
-//          log.errWriter.println("enter inner " + c);//DEBUG
-            if (c.owner.kind == TYP) enterInner((ClassSymbol)c.owner);
+            if (c.owner.kind == TYP)
+                enterInner((ClassSymbol)c.owner);
             pool.put(c);
             pool.put(c.name);
             if (innerClasses == null) {
@@ -924,6 +948,7 @@ public class ClassWriter extends ClassFile {
                 innerClassesQueue = new ListBuffer<ClassSymbol>();
                 pool.put(names.InnerClasses);
             }
+            // 将这个内部类保存到innerClasses集合和innerClassesQueue队列中
             innerClasses.add(c);
             innerClassesQueue.append(c);
         }
@@ -939,12 +964,16 @@ public class ClassWriter extends ClassFile {
              l = l.tail) {
             ClassSymbol inner = l.head;
             char flags = (char) adjustFlags(inner.flags_field);
-            if ((flags & INTERFACE) != 0) flags |= ABSTRACT; // Interfaces are always ABSTRACT
-            if (inner.name.isEmpty()) flags &= ~FINAL; // Anonymous class: unset FINAL flag
+            if ((flags & INTERFACE) != 0)
+                flags |= ABSTRACT; // 当为接口时去掉ABSTRACT
+            if (inner.name.isEmpty())
+                flags &= ~FINAL; // 当为匿名类时去掉FINAL
             if (dumpInnerClassModifiers) {
                 log.errWriter.println("INNERCLASS  " + inner.name);
                 log.errWriter.println("---" + flagNames(flags));
             }
+            // 下面写入 inner_classes_info表结构中的inner_class_info_index、
+            // outer_class_info_index、inner_name_index及inner_class_access_flags
             databuf.appendChar(pool.get(inner));
             databuf.appendChar(
                 inner.owner.kind == TYP ? pool.get(inner.owner) : 0);
@@ -957,41 +986,59 @@ public class ClassWriter extends ClassFile {
 
     /** Write field symbol, entering all references into constant pool.
      */
+    // 根据字段表结构写入databuf中
     void writeField(VarSymbol v) {
+        // 图Test23字段的访问表示.png中列出的字段访问标志与类的访问标志类似，不过字段允许的访问标志更多一些，
+        // 比如允许使用ACC_PRIVATE、ACC_PROTECTED等标志。
+        // 图Test23字段的访问表示.png中列出的具有相同含义的标志值与Flags类中预定义的常量名称对应的常量值严格一致，
+        // 因此在写入access_flags时可直接取Symbol对象的flags_field变量的值即可。
         int flags = adjustFlags(v.flags());
+        // access_flags
         databuf.appendChar(flags);
         if (dumpFieldModifiers) {
             log.errWriter.println("FIELD  " + fieldName(v));
             log.errWriter.println("---" + flagNames(v.flags()));
         }
+        // name_index
         databuf.appendChar(pool.put(fieldName(v)));
+        // descriptor_index
         databuf.appendChar(pool.put(typeSig(v.erasure(types))));
         int acountIdx = beginAttrs();
         int acount = 0;
         if (v.getConstValue() != null) {
+            // 写入ConstantValue属性
             int alenIdx = writeAttr(names.ConstantValue);
+            // attributes
             databuf.appendChar(pool.put(v.getConstValue()));
             endAttr(alenIdx);
             acount++;
         }
+        // 调用writeMemberAttrs()方法写入Deprecated、Synthetic和Signature属性
         acount += writeMemberAttrs(v);
+        // 调用endAttrs()方法更新attributes_count属性的值
         endAttrs(acountIdx, acount);
     }
 
     /** Write method symbol, entering all references into constant pool.
      */
+    // 写入方法符号，将所有引用输入到常量池中
     void writeMethod(MethodSymbol m) {
+        // 调用adjustFlags()方法调整c.flags_field的值
         int flags = adjustFlags(m.flags());
+        // access_flags
         databuf.appendChar(flags);
         if (dumpMethodModifiers) {
             log.errWriter.println("METHOD  " + fieldName(m));
             log.errWriter.println("---" + flagNames(m.flags()));
         }
+        // name_index
         databuf.appendChar(pool.put(fieldName(m)));
+        // descriptor_index
         databuf.appendChar(pool.put(typeSig(m.externalType(types))));
         int acountIdx = beginAttrs();
         int acount = 0;
         if (m.code != null) {
+            // 写入Code属性
             int alenIdx = writeAttr(names.Code);
             writeCode(m.code);
             m.code = null; // to conserve space
@@ -1000,6 +1047,7 @@ public class ClassWriter extends ClassFile {
         }
         List<Type> thrown = m.erasure(types).getThrownTypes();
         if (thrown.nonEmpty()) {
+            // 写入Exceptions属性
             int alenIdx = writeAttr(names.Exceptions);
             databuf.appendChar(thrown.length());
             for (List<Type> l = thrown; l.nonEmpty(); l = l.tail)
@@ -1008,20 +1056,26 @@ public class ClassWriter extends ClassFile {
             acount++;
         }
         if (m.defaultValue != null) {
+            // 写入注解属性
             int alenIdx = writeAttr(names.AnnotationDefault);
             m.defaultValue.accept(awriter);
             endAttr(alenIdx);
             acount++;
         }
+        // 调用writeMembersAttrs()方法写入Deprecated与Signature属性
         acount += writeMemberAttrs(m);
         acount += writeParameterAttrs(m);
+        // attributes_count
         endAttrs(acountIdx, acount);
     }
 
     /** Write code attribute of method.
      */
+    // 编写方法的代码属性
     void writeCode(Code code) {
+        // 方法的最大压栈
         databuf.appendChar(code.max_stack);
+        // 方法本地变量表容量
         databuf.appendChar(code.max_locals);
         databuf.appendInt(code.cp);
         databuf.appendBytes(code.code, 0, code.cp);
@@ -1462,7 +1516,8 @@ public class ClassWriter extends ClassFile {
         // i.e., process them in declaration order.
         List<VarSymbol> vars = List.nil();
         for (Scope.Entry i = e; i != null; i = i.sibling) {
-            if (i.sym.kind == VAR) vars = vars.prepend((VarSymbol)i.sym);
+            if (i.sym.kind == VAR)
+                vars = vars.prepend((VarSymbol)i.sym);
         }
         while (vars.nonEmpty()) {
             writeField(vars.head);
@@ -1564,14 +1619,28 @@ public class ClassWriter extends ClassFile {
         for (List<Type> l = interfaces; l.nonEmpty(); l = l.tail)
             // 循环追加接口在常量池中的索引
             databuf.appendChar(pool.put(l.head.tsym));
-        int fieldsCount = 0;
-        int methodsCount = 0;
+        // writeClassFile()方法在写完类、父类、接口数量和接口数组信息后，接着会写入字段数量和字段数组，字段数组中存储的是字段表
+        // 字段表结构 Test23字段表结构.png
+        // 字段的访问表示 Test23字段的访问表示.png
+        int fieldsCount = 0; // 字段个数
+        int methodsCount = 0; // 方法个数
+        // 循环处理成员
         for (Scope.Entry e = c.members().elems; e != null; e = e.sibling) {
             switch (e.sym.kind) {
-            case VAR: fieldsCount++; break;
-            case MTH: if ((e.sym.flags() & HYPOTHETICAL) == 0) methodsCount++;
+            // 成员是变量
+            case VAR:
+                // 计算c中定义的字段数量并追加到databuf中
+                fieldsCount++; break;
+            // 成员是方法
+            case MTH:
+                if ((e.sym.flags() & HYPOTHETICAL) == 0)
+                    // 计算方法的个数
+                    methodsCount++;
                       break;
-            case TYP: enterInner((ClassSymbol)e.sym); break;
+            // 成员是内部类
+            case TYP:
+                // 调用enterInner()方法对内部类进行处理
+                enterInner((ClassSymbol)e.sym); break;
             default : Assert.error();
             }
         }
@@ -1600,12 +1669,10 @@ public class ClassWriter extends ClassFile {
             acount++;
         }
 
+        // emitSourceFile是一个布尔类型的变量，当编译Java源代码时没有指定-g:命令
+        // 或者指定-g:source命令时其值为true，这时候就会生成SourceFile属性
         if (c.sourcefile != null && emitSourceFile) {
             int alenIdx = writeAttr(names.SourceFile);
-            // WHM 6/29/1999: Strip file path prefix.  We do it here at
-            // the last possible moment because the sourcefile may be used
-            // elsewhere in error diagnostics. Fixes 4241573.
-            //databuf.appendChar(c.pool.put(c.sourcefile));
             String simpleName = BaseFileObject.getSimpleName(c.sourcefile);
             databuf.appendChar(c.pool.put(names.fromString(simpleName)));
             endAttr(alenIdx);
@@ -1627,6 +1694,7 @@ public class ClassWriter extends ClassFile {
 
         acount += writeFlagAttrs(c.flags());
         acount += writeJavaAnnotations(c.getAnnotationMirrors());
+        // 写入EnclosingMethod属性
         acount += writeEnclosingMethodAttribute(c);
 
         // 魔数与版本号
@@ -1645,6 +1713,7 @@ public class ClassWriter extends ClassFile {
         writePool(c.pool);
 
         if (innerClasses != null) {
+            // 调用writeInnerClasses()方法对InnerClasses集合中保存的内部类进行处理
             writeInnerClasses();
             acount++;
         }
@@ -1668,6 +1737,7 @@ public class ClassWriter extends ClassFile {
         if ((flags & ANNOTATION) != 0  && !target.useAnnotationFlag())
             result &= ~ANNOTATION;
 
+        // 将Flags类中定义的BRIDGE与VARARGS常量值，替换为ACC_BRIDGE与ACC_VARARGS的标志值
         if ((flags & BRIDGE) != 0  && target.useBridgeFlag())
             result |= ACC_BRIDGE;
         if ((flags & VARARGS) != 0  && target.useVarargsFlag())

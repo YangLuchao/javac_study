@@ -38,29 +38,40 @@ import java.util.Map;
  */
 
 public abstract class Attribute {
+    // 记录注解类元素的默认值
     public static final String AnnotationDefault        = "AnnotationDefault";
     public static final String BootstrapMethods         = "BootstrapMethods";
     public static final String CharacterRangeTable      = "CharacterRangeTable";
+    // 储存方法中字节码指令及其他相关的信息
     public static final String Code                     = "Code";
+    // final关键字定义的常量值
     public static final String ConstantValue            = "ConstantValue";
     public static final String CompilationID            = "CompilationID";
+    // 被声明为deprecated的字段与方法
     public static final String Deprecated               = "Deprecated";
     public static final String EnclosingMethod          = "EnclosingMethod";
+    // 存储方法抛出的异常
     public static final String Exceptions               = "Exceptions";
     public static final String InnerClasses             = "InnerClasses";
     public static final String LineNumberTable          = "LineNumberTable";
     public static final String LocalVariableTable       = "LocalVariableTable";
     public static final String LocalVariableTypeTable   = "LocalVariableTypeTable";
+    // 为动态注解提供支持，指明注解在运行时可见
     public static final String RuntimeVisibleAnnotations = "RuntimeVisibleAnnotations";
+    // 为动态注解提供支持，指明注解在运行时不可见
     public static final String RuntimeInvisibleAnnotations = "RuntimeInvisibleAnnotations";
+    // 作用与RuntimeVisibleAnnotations属性类似，只不过作用对象为方法参数
     public static final String RuntimeVisibleParameterAnnotations = "RuntimeVisibleParameterAnnotations";
+    // 作用与RuntimeInvisibleAnnotations属性类似，只不过作用对象为方法参数
     public static final String RuntimeInvisibleParameterAnnotations = "RuntimeInvisibleParameterAnnotations";
+    // 记录泛型签名信息
     public static final String Signature                = "Signature";
     public static final String SourceDebugExtension     = "SourceDebugExtension";
     public static final String SourceFile               = "SourceFile";
     public static final String SourceID                 = "SourceID";
     public static final String StackMap                 = "StackMap";
     public static final String StackMapTable            = "StackMapTable";
+    // 标识类、方法或者字段由编译器生成
     public static final String Synthetic                = "Synthetic";
 
     public static class Factory {

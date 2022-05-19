@@ -37,6 +37,7 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 储存额外调试信息
 public class SourceDebugExtension_attribute extends Attribute {
     SourceDebugExtension_attribute(ClassReader cr, int name_index, int length) throws IOException {
         super(name_index, length);

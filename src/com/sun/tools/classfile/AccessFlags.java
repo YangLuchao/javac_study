@@ -37,6 +37,7 @@ import java.util.Set;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 访问表示
 public class AccessFlags {
     public static final int ACC_PUBLIC        = 0x0001; // class, inner, field, method
     public static final int ACC_PRIVATE       = 0x0002; //        inner, field, method

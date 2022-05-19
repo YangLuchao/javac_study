@@ -35,6 +35,11 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// Signature是可选的定长属性
+// Signature属性可以保存字段、方法和类型定义中的签名。
+// 签名是用于描述字段、方法和类型定义中的泛型信息的字符串。
+// 在生成字节码指令时使用的是擦除泛型后的信息，因此在运行时泛型并不参与，
+// 但Javac等编译器仍然需要将泛型相关的信息写入Class文件，这样可以辅助实现一些功能，如反射、类型推断或跟踪调试等
 public class Signature_attribute extends Attribute {
     Signature_attribute(ClassReader cr, int name_index, int length) throws IOException {
         super(name_index, length);

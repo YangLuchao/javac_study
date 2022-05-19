@@ -35,6 +35,8 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// Deprecated与Synthetic属性仅起标识作用，不包含任何数据
+// Deprecated属性用于标识那些已经不建议使用的类、接口、字段或方法，Javac等编译器可以根据Deprecated属性输出警告信息
 public class Deprecated_attribute extends Attribute {
     Deprecated_attribute(ClassReader cr, int name_index, int length) throws IOException {
         super(name_index, length);
@@ -46,6 +48,7 @@ public class Deprecated_attribute extends Attribute {
     }
 
     public Deprecated_attribute(int name_index) {
+        // 由于不包含任何数据，因而attribute_length的值为0
         super(name_index, 0);
     }
 

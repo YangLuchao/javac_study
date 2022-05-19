@@ -36,6 +36,9 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 在方法中定义类是，这个类具有此属性，表示这类的外围方法
+// EnclosingMethod属性是可选的定长属性。当且仅当类为本地类或者匿名类时，才能有EnclosingMethod属性，且一个类最多只能有一个EnclosingMethod属性
+// Test25EnclosingMethod属性结构.png
 public class EnclosingMethod_attribute extends Attribute {
     EnclosingMethod_attribute(ClassReader cr, int name_index, int length) throws IOException {
         super(name_index, length);
@@ -68,6 +71,12 @@ public class EnclosingMethod_attribute extends Attribute {
         return visitor.visitEnclosingMethod(this, data);
     }
 
+    // class_index是指向常量池的一个有效索引，常量池在该索引处的成员必须是CONSTANT_Class_info项
+    // 表示包含当前类声明的最内层类
     public final int class_index;
+    // 如果当前类不是在某个方法中直接包含，那么method_index的值为0，
+    // 否则method_index的值必须是对常量池的一个有效索引，
+    // 常量池在该索引处的项必须是CONSTANT_NameAndType_info项，
+    // 表示由class_index引用的类的对应方法的方法名和方法类型。
     public final int method_index;
 }

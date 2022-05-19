@@ -35,6 +35,9 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 记录Java源文件的名称
+// 一个ClassFile结构的属性表中最多只能包含一个SourceFile属性
+// Test25SourceFile属性结构.png
 public class SourceFile_attribute extends Attribute {
     SourceFile_attribute(ClassReader cr, int name_index, int length) throws IOException {
         super(name_index, length);
@@ -59,5 +62,7 @@ public class SourceFile_attribute extends Attribute {
         return visitor.visitSourceFile(this, p);
     }
 
+    // sourcefile_index是对常量池的一个有效索引，
+    // 常量池在该索引处为CONSTANT_Utf8_info项，表示被编译的Java源文件的名称
     public final int sourcefile_index;
 }

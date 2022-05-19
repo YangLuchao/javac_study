@@ -35,6 +35,8 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// Exceptions是变长属性，记录方法抛出的异常表
+// Test24Exceptions属性的格式.png
 public class Exceptions_attribute extends Attribute {
     Exceptions_attribute(ClassReader cr, int name_index, int length) throws IOException {
         super(name_index, length);
@@ -64,6 +66,8 @@ public class Exceptions_attribute extends Attribute {
         return visitor.visitExceptions(this, data);
     }
 
+    // 受检查的异常个数
     public final int number_of_exceptions;
+    // exception_index_table保存的索引指向常量池中的CONSTANT_Class_info项，表示受检查的异常
     public final int[] exception_index_table;
 }

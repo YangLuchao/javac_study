@@ -37,6 +37,9 @@ import java.util.NoSuchElementException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 方法中的一系列语句一般都会被编译为字节码指令存放到对应MethodSymbol对象的code字节数组中，
+// code字节数组中的内容最终会写入Class文件方法表的Code属性中
+// Test24Code属性结构1.png/Test24Code属性结构2.png
 public class Code_attribute extends Attribute {
     public class InvalidIndex extends AttributeException {
         private static final long serialVersionUID = -8904527774589382802L;
@@ -135,12 +138,20 @@ public class Code_attribute extends Attribute {
         };
     }
 
+    // max_stack属性表示操作数栈深度的最大值
     public final int max_stack;
+    // max_locals属性表示局部变量表所需的最大存储空间
     public final int max_locals;
+    // code_length保存字节码长度
     public final int code_length;
+    // 字节码指令编码及操作数
     public final byte[] code;
+    // exception_table_length指出异常处理表成员的数量
     public final int exception_table_langth;
+    // exception_table存储方法的异常处理表信息
     public final Exception_data[] exception_table;
+    // attributes_count与attributes存储Code属性的属性信息
+    // Test24Code中允许的属性.png
     public final Attributes attributes;
 
     public class Exception_data {

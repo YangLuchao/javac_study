@@ -35,6 +35,7 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 常量属性类
 public class ConstantValue_attribute extends Attribute {
     ConstantValue_attribute(ClassReader cr, int name_index, int length) throws IOException {
         super(name_index, length);
@@ -47,6 +48,8 @@ public class ConstantValue_attribute extends Attribute {
     }
 
     public ConstantValue_attribute(int name_index, int constantvalue_index) {
+        // ConstantValue是一个定长属性
+        // attribute_length的值必须是2
         super(name_index, 2);
         this.constantvalue_index = constantvalue_index;
     }
@@ -55,5 +58,8 @@ public class ConstantValue_attribute extends Attribute {
         return visitor.visitConstantValue(this, data);
     }
 
+    /**
+     * constantvalue_index保存常量池索引，但具体指向常量池哪个具体的项由字段的类型决定
+     */
     public final int constantvalue_index;
 }

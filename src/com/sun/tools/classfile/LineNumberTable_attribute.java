@@ -35,6 +35,7 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// Java源代码中的行号与字节码指令的对应关系
 public class LineNumberTable_attribute extends Attribute {
     LineNumberTable_attribute(ClassReader cr, int name_index, int length) throws IOException {
         super(name_index, length);

@@ -36,6 +36,7 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 保存invokedynamic指令的引导方法限定符
 public class BootstrapMethods_attribute extends Attribute {
     public final BootstrapMethodSpecifier[] bootstrap_method_specifiers;
 

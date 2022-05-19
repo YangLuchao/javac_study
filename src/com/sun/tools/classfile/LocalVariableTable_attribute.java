@@ -35,6 +35,7 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 方法的形式参数列表相关的信息，包括有对实例方法中隐式变量this的描述
 public class LocalVariableTable_attribute extends Attribute {
     LocalVariableTable_attribute(ClassReader cr, int name_index, int length) throws IOException {
         super(name_index, length);

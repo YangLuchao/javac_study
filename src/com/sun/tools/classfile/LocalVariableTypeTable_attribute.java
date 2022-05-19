@@ -35,6 +35,7 @@ import java.io.IOException;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// 与LocalVariableTable相似，但是使用了签名来代替LocalVariableTable中的描述符
 public class LocalVariableTypeTable_attribute extends Attribute {
     LocalVariableTypeTable_attribute(ClassReader cr, int name_index, int length) throws IOException {
         super(name_index, length);
