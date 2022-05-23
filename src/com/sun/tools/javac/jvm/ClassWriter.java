@@ -326,7 +326,7 @@ public class ClassWriter extends ClassFile {
             }
             break;
         case WILDCARD: {
-            //通配符类型和类型变量只会在计算签名时使用，因为在计算描述符时会进行类型擦写，
+            // 通配符类型和类型变量只会在计算签名时使用，因为在计算描述符时会进行类型擦写，
             // 所以不会存在通配符类型和类型变量，实现也相对简单，按照相关的文法生成签名字符串即可。
             WildcardType ta = (WildcardType) type;
             switch (ta.kind) {
@@ -347,11 +347,13 @@ public class ClassWriter extends ClassFile {
             break;
         }
         case TYPEVAR:
+            // 类型参数类型
             sigbuf.appendByte('T');
             sigbuf.appendName(type.tsym.name);
             sigbuf.appendByte(';');
             break;
         case FORALL:
+            // 辅助泛型类型
             ForAll ft = (ForAll)type;
             // 获取方法的签名时，可通过调用assembleParamsSig()方法计算形式类型参数的签名
             assembleParamsSig(ft.tvars);
@@ -359,8 +361,6 @@ public class ClassWriter extends ClassFile {
             break;
         case UNINITIALIZED_THIS:
         case UNINITIALIZED_OBJECT:
-            // we don't yet have a spec for uninitialized types in the
-            // local variable table
             assembleSig(types.erasure(((UninitializedType)type).qtype));
             break;
         default:
