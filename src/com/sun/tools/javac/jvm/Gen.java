@@ -2410,8 +2410,6 @@ public class Gen extends JCTree.Visitor {
             ClassSymbol c = cdef.sym;
             this.toplevel = env.toplevel;
             this.endPositions = toplevel.endPositions;
-            // If this is a class definition requiring Miranda methods,
-            // add them.
             if (generateIproxies &&
                 (c.flags() & (INTERFACE|ABSTRACT)) == ABSTRACT
                 && !allowGenerics // no Miranda methods available with generics

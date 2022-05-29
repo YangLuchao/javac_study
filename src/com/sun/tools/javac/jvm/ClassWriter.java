@@ -390,8 +390,8 @@ public class ClassWriter extends ClassFile {
             assembleClassSig(rawOuter
                     // 当封闭类是参数化类型时则需要一些特殊的处理，如果当前类是本地类或匿名类时，需对封闭类进行泛型擦除
                     // 例18-7
-                             ? types.erasure(outer)
-                             : outer);
+                    ? types.erasure(outer)
+                    : outer);
             sigbuf.appendByte('.');
             Assert.check(c.flatname.startsWith(c.owner.enclClass().flatname));
             sigbuf.appendName(rawOuter
