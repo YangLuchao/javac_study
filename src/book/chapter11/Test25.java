@@ -13,9 +13,9 @@ abstract class CA25<T1, T2 extends Number> {
     public abstract void md(T1 a);
 }
 
-abstract class CB25 extends CA25<Integer, Integer> {
-    public void test(Integer p) {
-        // 报错，对md的引用不明确, CA中的方法 md(T2)和CA中的方法 md(T1)都匹配
-//        md(p);
-    }
-}
+//abstract class CB25 extends CA25<Integer, Integer> {
+//    public void test(Integer p) {
+//        // 报错，对md的引用不明确, CA中的方法 md(T2)和CA中的方法 md(T1)都匹配
+////        md(p);
+//    }
+//}

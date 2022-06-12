@@ -1405,6 +1405,7 @@ public class JavaCompiler implements ClassReader.SourceCompleter {
             if (shouldStop(CompileState.TRANSTYPES))
                 return;
 
+            // 泛型擦除
             env.tree = transTypes.translateTopLevelClass(env.tree, localMake);
             compileStates.put(env, CompileState.TRANSTYPES);
 

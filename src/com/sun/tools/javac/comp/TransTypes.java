@@ -48,6 +48,7 @@ import static com.sun.tools.javac.code.TypeTags.*;
  *  This code and its internal interfaces are subject to change or
  *  deletion without notice.</b>
  */
+// TransTypes类型擦除
 public class TransTypes extends TreeTranslator {
     /** The context key for the TransTypes phase. */
     protected static final Context.Key<TransTypes> transTypesKey =

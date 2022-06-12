@@ -23,20 +23,20 @@ class MyNode11 extends Node11<Integer> {
 同一个包中定义了Node与MyNode类，MyNode类继承了参数化类型Node<Integer>，
 其中MyNode类中的setData()方法覆写了Node类中的setData()方法
  */
-class Node11_1 {
-    public Object data;
-
-    public void setData(Object data) {
-        this.data = data;
-    }
-}
-
-class MyNode11_1 extends Node11_1 {
-    public void setData(Integer data) {
-    }
-
-    /*synthetic*/
-    public void setData(Object x0) {// 合成的桥方法
-        this.setData((Integer) x0);
-    }
-}
+//class Node11_1 {
+//    public Object data;
+//
+//    public void setData(Object data) {
+//        this.data = data;
+//    }
+//}
+//
+//class MyNode11_1 extends Node11_1 {
+//    public void setData(Integer data) {
+//    }
+//
+//    /*synthetic*/
+//    public void setData(Object x0) {// 合成的桥方法
+//        this.setData((Integer) x0);
+//    }
+//}
