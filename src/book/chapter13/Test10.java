@@ -8,7 +8,7 @@ import java.io.Serializable;
 /*
 泛型擦除前
  */
-class Test10<X, Y extends Serializable & Cloneable, Z extends X> {
+class Test10<X extends Integer, Y extends Serializable & Cloneable, Z extends X> {
     X x;
     Y y;
     Z z;
