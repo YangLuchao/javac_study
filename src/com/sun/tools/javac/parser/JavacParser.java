@@ -2517,6 +2517,7 @@ public class JavacParser implements Parser {
      *  @param mods     Any modifiers starting the class or interface declaration
      *  @param dc       The documentation comment for the class, or null.
      */
+    // 解析类、接口、枚举的定义
     JCStatement classOrInterfaceOrEnumDeclaration(JCModifiers mods, String dc) {
         // 解析类
         if (S.token() == CLASS) {

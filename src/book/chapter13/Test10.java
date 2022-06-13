@@ -2,13 +2,13 @@ package book.chapter13;
 
 import java.io.Serializable;
 
-public class Test10 {
-}
+//public class Test10 {
+//}
 
 /*
 泛型擦除前
  */
-class Test10_1<X extends Integer, Y extends Serializable & Cloneable, Z extends X> {
+class Test10<X, Y extends Serializable & Cloneable, Z extends X> {
     X x;
     Y y;
     Z z;
