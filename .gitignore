@@ -1,3 +1,9 @@
 /.idea
 /out
 *.class
+src/book/chapter13/out/test10/book/chapter13/Test10.class
+src/.DS_Store
+readme/.DS_Store
+out/.DS_Store
+.idea/misc.xml
+.DS_Store
