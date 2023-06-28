@@ -3,25 +3,9 @@ package ylcComplieTest;
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
 import java.io.IOException;
+import java.util.List;
 
 public class TestCompiler {
-
-    Integer a;
-
-    TestCompiler() {
-        Class a = Void.class;
-        Class b = void.class;
-        Integer c = TestCompiler.this.a;
-//        TestCompiler.super
-    }
-
-    TestCompiler(Integer i) {
-        this(i, i);
-    }
-
-    TestCompiler(Integer i, Integer a) {
-        this();
-    }
 
     public static void main(String args[]) throws
             IOException {
@@ -30,15 +14,21 @@ public class TestCompiler {
         javax.tools.JavaCompiler compiler =
                 ToolProvider.getSystemJavaCompiler();
         int result = compiler.run(null, null, null,
-                new String[]{
-                        "-d", "/Users/yangluchao/Documents/GitHub/javac_study/save",
-                        path
-                }
-        );
+                "-d", "/Users/yangluchao/Documents/GitHub/javac_study/save", path);
         System.out.println("Result code: " + result);
     }
 
-    public <T extends TestCompiler & JavaCompiler> void ai(T t) {
-
+    /**
+     * 中序表达式：(a + b) * c / (d - e) ^ f
+     * 后序表达式：a b + c * d e - f ^ /
+     */
+    public int postfix(int a, int b, int c, int d, int e, int f){
+        return  (a + b) * c / (d - e) ^ f;
     }
+
+    public Integer whatIsNull(List nul) {
+        nul.add(new Object());
+        return null;
+    }
+
 }

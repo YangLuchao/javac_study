@@ -2072,7 +2072,7 @@ public class Gen extends JCTree.Visitor {
         code.emitop0(pop);
     }
 
-    // 访问二元表达式
+    // 访问二元表达式com.sun.tools.javac.jvm.Gen.visitBinary
     public void visitBinary(JCBinary tree) {
         OperatorSymbol operator = (OperatorSymbol)tree.operator;
         if (operator.opcode == string_add) {
