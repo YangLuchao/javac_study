@@ -105,7 +105,7 @@ public class Test{
 
 现在对变量n的初始化表达式进行标注，初始化表达式对应的语法树如图12\-1所示。 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.5hxgnn9kx040.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.5hxgnn9kx040.webp)
 
 图12\-1　初始化表达式的语法树 
 
@@ -125,7 +125,7 @@ attribExpr(tree.init, _, v.type);
 
 表12\-3　标注初始化表达式 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.5w1c8o58shc0.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.5w1c8o58shc0.webp)
 
 表12\-3中“方法名称”一列从上到下表示按顺序调用Attr类的visitSelect\(\)或visitIdent\(\)方法，对变量初始化表达式中的各个项进行标注。可以看到，最后调用visitIdent\(\)方法标注JCIdent\(name=compile\)，而JCIdent\(name=compile\)也是首先完成标注的树节点，之后才会依次完成对JCFieldAccess\(name=Music\)、JCFieldAccess\(name=wizards\)与JCFieldAccess\(name=length\)的标注，每次完成一项的标注后，就会返回实际的类型。对于visitSelect\(\)方法来说，通过局部变量site接收到tree.selected的实际类型后，调用TreeInfo.symbol\(\)方法获取符号，实现代码如下： 
 
@@ -259,8 +259,8 @@ Symbol resolveSelf(_,Env<AttrContext> env,TypeSymbol c,Name name) {
 
 表12\-4　初始化表达式的标注过程 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.3kkm1rgyiwo0.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.3kkm1rgyiwo0.webp)
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.6lgk9knmxr80.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.6lgk9knmxr80.webp)
 
 表12\-4从上到下按顺序标注了初始化表达式的各个项，同时给出了期望的符号和类型与最终查找到的实际符号和类型。 

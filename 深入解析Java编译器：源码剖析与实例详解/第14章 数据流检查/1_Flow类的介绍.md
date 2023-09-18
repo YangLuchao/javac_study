@@ -368,7 +368,7 @@ for (int i = bits.nextBit(0); i>=0; i = bits.nextBit(i+1))    ... 
 
 之前介绍了两个状态变量inits与uninits，下面使用这两个状态变量对变量赋值状态进行检查。在实例14\-6中，a、c、d与e变量需要进行赋值状态检查。a变量会保存到vars数组下标为0的位置，所以inits与uninits中第0个位表示的是a变量的状态，inits中第0个位的值为0，表示变量没有明确初始化，所以不能使用a变量的值，只有为1时才可以取a变量的值，如变量可以出现在赋值表达式的右侧；uninits中第0个位的值为1，表示变量明确未初始化，所以如果对应的变量有final修饰，可以对a变量进行初始化。在处理完test\(\)方法最后一条声明变量e的语句后，与变量赋值检查相关变量的值如图14\-1所示。 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.14dxapvrg05.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.14dxapvrg05.webp)
 
 图14\-1　与变量赋值检查相关变量的值 
 

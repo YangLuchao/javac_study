@@ -183,7 +183,7 @@ public class Test {
 
 表14\-1　不同位置对应的thrown与caught列表 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.2zk0jislgp40.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.2zk0jislgp40.webp)
 
 if语句的条件判断表达式调用chk.isUnchecked\(\)方法确保要处理的是受检查的异常，调用chk.isHandled\(\)方法确保异常没有被处理过，这里所说的处理，是指异常被捕获或者在方法上声明抛出。 
 

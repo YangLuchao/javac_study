@@ -38,7 +38,7 @@ attribTree\(\)方法的实现类似于Enter及MemberEnter类中classEnter\(\)方
 
 表12\-2　成员变量的说明 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.3x4nsab5aqo0.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.3x4nsab5aqo0.webp)
 
 其中，pkind与pt就是根据当前表达式语法树所处的上下文环境得出的对符号及类型的期望。如果已经得出实际的符号及类型，就会调用check\(\)方法来验证实际的符号和类型是否与期望的符号和类型兼容。check\(\)方法的实现代码如下： 
 

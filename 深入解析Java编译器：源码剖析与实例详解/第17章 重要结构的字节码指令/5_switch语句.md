@@ -20,11 +20,11 @@ lookupswitch指令根据键值在跳转表中寻找配对的分支并跳转，�
 
 tableswitch指令根据键值在跳转表中寻找配对的分支并跳转，具体的格式如图17\-2所示。 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.7fw2n71t0s00.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.7fw2n71t0s00.webp)
 
 图17\-1　lookupswitch指令结构 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.2hdpze7yv040.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.2hdpze7yv040.webp)
 
 图17\-2　tableswitch指令结构 
 

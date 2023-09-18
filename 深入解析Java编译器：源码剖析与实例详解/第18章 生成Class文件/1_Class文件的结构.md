@@ -50,7 +50,7 @@ public void appendChar(int x) {
 
 表18\-1　Class文件的结构 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.2rj4dovb7js0.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.2rj4dovb7js0.webp)
 
 其中，“类型”列中以“\_info”结尾的类型都表示表类型，而“名称”列的方括号中描述了当前这个结构的数量，如果没有方括号，默认的数量为1。 
 

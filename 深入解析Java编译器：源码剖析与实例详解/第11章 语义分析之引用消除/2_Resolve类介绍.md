@@ -28,7 +28,7 @@ class Sub extends Parent {
 
 Resolve类提供了许多方法用来确定被引用的类型、变量和方法，不过在具体的查找过程中可能会出现各种错误，例如无法找到被引用的符号，找到多个符号（引用歧义）等。为了更好地进行符号查找，在Resolve类中定义了一些内部类，这些内部类表示符号查找过程中的错误，涉及的主要类的继承体系如图11\-1所示。 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.6jvnfdb9ldc0.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.6jvnfdb9ldc0.webp)
 
 图11\-1　表示错误的类的继承体系 
 
@@ -57,7 +57,7 @@ public static final int ABSENT_TYP   = ERRONEOUS+8; // missing type
 
 表11\-1　类与Kinds类中定义的常量值的对应关系 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.4clkmrlt1b40.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.4clkmrlt1b40.webp)
 
 在查找类型、变量或者方法的引用时都可能得到AmbiguityError、AccessError、StaticError与SymbolNotFoundError对象，在查找方法时可能得到InaplicableSymbolsError与InapplicableSymbolError对象，下面举几个例子。 
 

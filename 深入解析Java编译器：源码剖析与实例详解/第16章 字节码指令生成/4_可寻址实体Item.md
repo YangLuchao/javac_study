@@ -243,11 +243,11 @@ items.makeLocalItem(v).store();
 
 “\+\+a”语句对应的语法树结构如图16\-2所示。 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.5z81tk9kmpk0.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.5z81tk9kmpk0.webp)
 
 图16\-1　语句的语法树1 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.4skem5d4icq0.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.4skem5d4icq0.webp)
 
 图16\-2　语句的语法树2 
 
@@ -299,7 +299,7 @@ case JCTree.PREINC: case JCTree.PREDEC:
 
 对于“return a”语句来说，具体的语法树结构如图16\-3所示。 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.3ru8bsyvdxk0.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.3ru8bsyvdxk0.webp)
 
 图16\-3　语句的语法树3 
 
@@ -581,7 +581,7 @@ md\(\)方法的字节码指令如下：
 
 赋值表达式“j=i=1”等价于表达式“j=\(i=1\)”，相当于包含了两个赋值表达式，具体的语法树结构如图16\-4所示。 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.40vr4bavie40.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.40vr4bavie40.webp)
 
 图16\-4　语句的语法树4 
 
@@ -765,7 +765,7 @@ class Test {
 
 “a=a\+1”语句的树结构如图16\-5所示。 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.6jtacqu8pq00.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.6jtacqu8pq00.webp)
 
 图16\-5　语句的语法树5 
 
@@ -942,7 +942,7 @@ class Test{
 
 与实例16\-6操作静态变量a不同，操作实例变量a需要指定对象，也就是要确定操作的是哪个对象的实例变量a。 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.4tnleo4g20a0.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.4tnleo4g20a0.webp)
 
 图16\-6　语句的语法树6 
 
@@ -1060,7 +1060,7 @@ public <init>() {
 
 “super\(\)”语句的语法树结构如图16\-7所示。 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.6mb6o2xr5e80.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.6mb6o2xr5e80.webp)
 
 图16\-7　语句的语法树7 
 
@@ -1181,7 +1181,7 @@ md\(\)方法的字节码指令如下：
 
 md\(\)方法中的“return arr\[a\]\+\+”语句对应的语法树结构如图16\-8所示。 
 
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.re19hmwc1f4.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.re19hmwc1f4.webp)
 
 图16\-8　语句的语法树8 
 

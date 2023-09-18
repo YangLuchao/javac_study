@@ -3,7 +3,7 @@
 Javac会将Java源代码中用到的字符串封装为com.sun.tools.javac.util.Name对象，例如Java中的标识符号、保留关键字等，并且相同的字符串用同一个Name对象表示，这样在判断Name对象是否相等时就可以直接通过恒等运算符“==”来判断了。
 
 多个Name对象通过Table类中的数组来存储，Name与Table相关类的继承关系如图3\-5所示。
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.31ldchivtuk0.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.31ldchivtuk0.webp)
 
 Name类的实现类为NameImpl，定义在SharedNameTable类中，而Table类定义在Name类中，主要的实现类为SharedNameTable。
 
@@ -146,6 +146,6 @@ protected static int hashValue(byte bytes[], int offset, int length) {
 在fromChars\(\)方法中，如果根据哈希值进行存储时，对应槽位上的值不为空并且与当前要保存的内容不同，则使用单链表来解决冲突；如果获取到的值为空，则创建NameImpl对象并保存index与length的值。所以fromChars\(\)方法兼有存储和查找的功能。
 
 假如有个NameImpl对象为“/=”，具体的存储原理如图3\-6所示。
-![image](https://cdn.staticaly.com/gh/YangLuchao/img_host@master/20230418/image.6qxl7vqgnw80.webp)
+![image](https://github.com/YangLuchao/img_host/raw/master/20230418/image.6qxl7vqgnw80.webp)
 
 有了fromChars\(\)方法后，Javac就可以用Name对象来表示特定的字符数组或者说字符串了。假设词法分析认定连续读入的'/'与'='字符序列应该是一个Token对象，那么就需要通过这串字符序列或者说存储这个字符序列的字符数组找到对应的Token对象，在查找具体的Token对象之前，调用fromChars\(\)方法将字符数组转换为Name对象，然后通过Name对象查找具体的Token对象。完成Name对象到Token对象映射的类是com.sun.tools.javac.parser.Keywords。
